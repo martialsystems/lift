@@ -1,0 +1,7 @@
+src/audio/process_block.cpp
+src/audio/process_block.h
+src/tape/model.cpp
+src/tape/model.h
+src/tape/transport.cpp
+src/tape/transport.h
+src/tape/character.h

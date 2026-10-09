@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "engines": ["Loom", "Bend", "Fold", "Ratio", "Wire", "Swarm", "Spool", "Spare"],
+  "effects": ["Drip", "Echo", "Crush", "Tilt", "Accent", "Chorus", "Handset", "Space"],
+  "sequencers": ["Steps", "Latch"],
+  "characters": ["Deck", "Pocket", "Shed", "Cap"],
+  "drums": ["Tap"]
+}

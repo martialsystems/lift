@@ -1,0 +1,10 @@
+{
+  "runtime_checks": [
+    {
+      "id": "readme-license-prose",
+      "argv": ["python3", "tools/prose_check.py"],
+      "timeout_s": 30,
+      "paths": ["README.md", "LICENSE"]
+    }
+  ]
+}
