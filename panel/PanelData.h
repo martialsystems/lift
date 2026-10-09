@@ -94,6 +94,11 @@ inline juce::Point<float> knobCentre(int i) { return {684.f + static_cast<float>
 inline juce::Rectangle<float> padRect(int k) {
     return {684.f + static_cast<float>(k % 8) * 80.f, 446.f + static_cast<float>(k / 8) * 80.f, 72.f, 72.f};
 }
+// Keypad slot -> function. Functions: 0 LIFT, 1 LOOP, 2 SHIFT, 3 REV, 4 DROP,
+// 5 REC, 6 OCT-, 7 PLAY, 8 OCT+, 9 STOP. SHIFT sits above STOP (top-right),
+// swapped with DROP: top row LIFT LOOP DROP REV SHIFT.
+constexpr int MEM_FN[10] = {0, 1, 4, 3, 2, 5, 6, 7, 8, 9};
+constexpr int kShiftSlot = 4;
 inline juce::Rectangle<float> memRect(int k) {
     return {72.f + static_cast<float>(k % 5) * 117.6f, 724.f + static_cast<float>(k / 5) * 54.f, 105.6f, 44.f};
 }

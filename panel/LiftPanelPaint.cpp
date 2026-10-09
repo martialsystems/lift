@@ -504,7 +504,8 @@ void LiftPanel::paintMembrane(Graphics& g) {
     const juce::Font lf = jost(500, 13.f, 0.06f);
     for (int k = 0; k < 10; ++k) {
         Rectangle<float> r = memRect(k);
-        const bool red = k == 5 || k == 9;
+        const int f = MEM_FN[k];  // slot -> function (SHIFT and DROP swapped)
+        const bool red = f == 5 || f == 9;
         const bool down = pressedMem_ == k;
         Graphics::ScopedSaveState s(g);
         if (down) {
@@ -512,18 +513,24 @@ void LiftPanel::paintMembrane(Graphics& g) {
         }
         fill(g, rrect(r.expanded(4.f), 9.f), hex(0xe6e6e2));
         fill(g, rrect(r.expanded(2.5f), 7.5f), hex(0x131313));
+        if (f == 2 && shiftAmt_ > 0.f) {
+            // light leaking through the gap under the pad's edges
+            const float a = shiftAmt_ * shiftAmt_ * (3.f - 2.f * shiftAmt_);
+            fill(g, rrect(r.expanded(2.5f), 7.5f), hex(0xff5a1e, 0.85f * a));
+        }
         const Path key = rrect(r, 5.f);
         fill(g, key, down ? (red ? hex(0xd23434) : hex(0x3cb1dc)) : (red ? hex(0xea3e3e) : hex(0x4ec4ec)));
         if (down) {
             inset(g, key, B(0.3f), 0.f, 1.f, 3.f);
         }
-        const float gw = (k == 2 || k == 9) ? 12.f : (k == 3 ? 11.f : (k == 7 ? 12.f : 14.f));
-        const float tw = cssWidth(500, false, 13.f, 0.06f, labels[k]);
+        // SHIFT is text only (its square icon was removed)
+        const float gw = f == 2 ? -9.f : (f == 9 ? 12.f : (f == 3 ? 11.f : (f == 7 ? 12.f : 14.f)));
+        const float tw = cssWidth(500, false, 13.f, 0.06f, labels[f]);
         const float x0 = r.getCentreX() - (gw + 9.f + tw) * 0.5f;
         const float cy = r.getCentreY();
         const Colour wh = juce::Colours::white;
         g.setColour(wh);
-        switch (k) {
+        switch (f) {
         case 0: {
             Path t;
             t.addTriangle(x0, cy + 5.5f, x0 + 14.f, cy + 5.5f, x0 + 7.f, cy - 5.5f);
@@ -531,7 +538,7 @@ void LiftPanel::paintMembrane(Graphics& g) {
             break;
         }
         case 1: g.drawEllipse(x0 + 1.5f, cy - 5.5f, 11.f, 11.f, 3.f); break;
-        case 2: g.drawRect(x0, cy - 6.f, 12.f, 12.f, 3.f); break;
+        case 2: break;
         case 3: {
             Path t;
             t.addTriangle(x0 + 11.f, cy - 7.f, x0 + 11.f, cy + 7.f, x0, cy);
@@ -547,7 +554,7 @@ void LiftPanel::paintMembrane(Graphics& g) {
         case 5: g.fillEllipse(x0, cy - 7.f, 14.f, 14.f); break;
         case 6:
         case 8:
-            text(g, k == 6 ? juce::String::fromUTF8("\xe2\x88\x92") : juce::String("+"), jost(500, 20.f), wh,
+            text(g, f == 6 ? juce::String::fromUTF8("\xe2\x88\x92") : juce::String("+"), jost(500, 20.f), wh,
                  {x0 - 10.f, cy - 10.f, 34.f, 20.f}, Justification::centred);
             break;
         case 7: {
@@ -558,7 +565,10 @@ void LiftPanel::paintMembrane(Graphics& g) {
         }
         default: g.fillRect(x0, cy - 6.f, 12.f, 12.f); break;
         }
-        text(g, labels[k], lf, wh, {x0 + gw + 9.f, cy - 10.f, tw + 10.f, 20.f}, Justification::centredLeft);
+        text(g, labels[f], lf, wh, {x0 + gw + 9.f, cy - 10.f, tw + 10.f, 20.f}, Justification::centredLeft);
+    }
+    if (shiftAmt_ > 0.f) {
+        paintShiftBloom(g, memRect(kShiftSlot), shiftAmt_ * shiftAmt_ * (3.f - 2.f * shiftAmt_));
     }
 }
 

@@ -320,10 +320,12 @@ void LiftPanel::act(const juce::String& a) {
         flash(juce::String::fromUTF8("DROPPED \xc2\xb7 OVERDUB \xc2\xb7 5 MS FADES"));
     } else if (k == "loop") {
         loop_ = !loop_;
-        proc_.send(Cmd::Loop, loop_ ? 1 : 0);
+        sendLoop();
     } else if (k == "shift") {
-        shift_ = !shift_;
-        say(shift_ ? "Shift held: encoders turn backward on the arrow keys." : "Shift released.");
+        shiftLatch_ = !shiftLatch_;
+        updateShift();
+        say(shiftLatch_ ? "Shift latched. Keys and buttons run their shifted functions; tap SHIFT to release."
+                        : "Shift released.");
     } else if (k == "rev") {
         rev_ = !rev_;
         proc_.send(Cmd::Rev, rev_ ? 1 : 0);
@@ -353,11 +355,11 @@ void LiftPanel::act(const juce::String& a) {
 
 void LiftPanel::noteOn(int n) {
     if (heldNote_ >= 0) {
-        proc_.send(Cmd::NoteOff, 48 + 12 * oct_ + heldNote_);
+        proc_.send(Cmd::NoteOff, midiOf(heldNote_));
     }
     heldNote_ = n;
     note_ = n;
-    proc_.send(Cmd::NoteOn, 48 + 12 * oct_ + n);
+    proc_.send(Cmd::NoteOn, midiOf(n));
     repaint();
 }
 
@@ -406,7 +408,12 @@ void LiftPanel::padAct(int k) {
 
 void LiftPanel::memAct(int k) {
     const char* ids[10] = {"lift", "loop", "shift", "rev", "drop", "rec", "octd", "play", "octu", "stop"};
-    act(ids[k]);
+    const int fn = MEM_FN[k];
+    if (shiftActive() && (fn == 0 || fn == 1 || fn == 5 || fn == 9)) {
+        shiftCombo(fn);
+        return;
+    }
+    act(ids[fn]);
 }
 
 void LiftPanel::topAct(int k) {
@@ -620,12 +627,22 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
     }
     const int key = keyAt(d);
     if (key >= 0) {
+        if (shiftActive()) {
+            pressKey(key);
+            return;
+        }
         mouseNote_ = true;
         noteOn(key);
         return;
     }
     pressedPad_ = padAt(d);
     pressedMem_ = memAt(d);
+    if (pressedMem_ == kShiftSlot) {
+        // press and hold = momentary shift; a quick tap latches (on release)
+        shiftMouse_ = true;
+        shiftDownT_ = t_;
+        updateShift();
+    }
     pressedTop_ = topAt(c);
     repaint();
 }
@@ -648,7 +665,7 @@ void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
         return;
     }
     if (kd_.active) {
-        const float range = e.mods.isShiftDown() ? 1200.f : 220.f;
+        const float range = (e.mods.isShiftDown() || shiftActive()) ? 1200.f : 220.f;
         setEnc(kd_.i, kd_.v0 + (kd_.y - c.y) / range);
         return;
     }
@@ -743,6 +760,17 @@ void LiftPanel::mouseUp(const juce::MouseEvent& e) {
     const int top = topAt(c);
     const int pp = pressedPad_, pm = pressedMem_, pt = pressedTop_;
     pressedPad_ = pressedMem_ = pressedTop_ = -1;
+    if (pm == kShiftSlot) {
+        const bool tap = t_ - shiftDownT_ < 0.3;
+        shiftMouse_ = false;
+        if (tap && mem == pm) {
+            memAct(pm);  // toggles the latch
+        } else {
+            updateShift();
+        }
+        repaint();
+        return;
+    }
     if (pp >= 0 && pad == pp) {
         padAct(pad);
     } else if (pm >= 0 && mem == pm) {
@@ -779,7 +807,7 @@ void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheel
     if (delta == 0.f) {
         return;
     }
-    const float step = e.mods.isShiftDown() ? 0.005f : 0.025f;
+    const float step = (e.mods.isShiftDown() || shiftActive()) ? 0.005f : 0.025f;
     setEnc(k, enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)] + (delta > 0.f ? step : -step));
 }
 
@@ -812,7 +840,7 @@ bool LiftPanel::keyPressed(const juce::KeyPress& key) {
         return true;
     }
     if (focusKnob_ >= 0) {
-        const float step = mods.isShiftDown() ? 0.01f : 0.05f;
+        const float step = (mods.isShiftDown() || shiftActive()) ? 0.01f : 0.05f;
         const float v = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(focusKnob_)];
         const int kc = key.getKeyCode();
         if (kc == juce::KeyPress::upKey || kc == juce::KeyPress::rightKey) {
@@ -836,7 +864,12 @@ bool LiftPanel::keyPressed(const juce::KeyPress& key) {
         act("play");
         return true;
     }
-    const juce::juce_wchar ch = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
+    juce::juce_wchar ch = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
+    if (ch == ':') {
+        ch = ';';  // shifted keys on a US layout
+    } else if (ch == '"') {
+        ch = '\'';
+    }
     if (ch == 'z') {
         act("octd");
         return true;
@@ -847,6 +880,14 @@ bool LiftPanel::keyPressed(const juce::KeyPress& key) {
     }
     for (int n = 0; kMapKeys[n] != 0; ++n) {
         if (ch == static_cast<juce::juce_wchar>(kMapKeys[n])) {
+            const int note = n;
+            if (shiftActive()) {
+                if (!key.isKeyCurrentlyDown(heldKeyCode_) || heldKeyCode_ != key.getKeyCode()) {
+                    pressKey(note);
+                    heldKeyCode_ = key.getKeyCode();
+                }
+                return true;
+            }
             if (heldKeyCode_ != key.getKeyCode() || heldNote_ != n) {
                 noteOn(n);
                 heldKeyCode_ = key.getKeyCode();

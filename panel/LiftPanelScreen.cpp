@@ -249,6 +249,24 @@ void LiftPanel::advance(double dtD) {
     an_.lastCords = cords_.size();
     busy = busy || view == 5;
 
+    // shift: ~120 ms fade for the pad light and the screen legend
+    {
+        const float target = shiftActive() ? 1.f : 0.f;
+        const float before = shiftAmt_;
+        if (snap) {
+            shiftAmt_ = target;
+        } else if (shiftAmt_ < target) {
+            shiftAmt_ = juce::jmin(target, shiftAmt_ + dt / 0.12f);
+        } else if (shiftAmt_ > target) {
+            shiftAmt_ = juce::jmax(target, shiftAmt_ - dt / 0.12f);
+        }
+        if (shiftAmt_ != before) {
+            repaint(shiftKeyArea());
+            busy = true;
+        }
+        busy = busy || (shiftAmt_ > 0.f && ((t_ - shiftOnT_) < 1.0 || (t_ - lastFnT_) < 1.5));
+    }
+
     // status message fade
     if (msg_.isNotEmpty() && t_ > msgUntil_) {
         msg_.clear();
@@ -399,8 +417,18 @@ void LiftPanel::paintView(Graphics& g) {
     const float p = static_cast<float>(t_ - an_.viewT) / kTransition;
     if (reducedMotion_ || view != an_.view || an_.prevView == an_.view || p >= 1.f) {
         paintViewFor(g, view);
-        return;
+    } else {
+        paintTransition(g, view, p);
     }
+    if (shiftAmt_ > 0.f) {
+        Graphics::ScopedSaveState o(g);
+        const float sc = 600.f / 720.f;
+        g.addTransform(AffineTransform::scale(sc).translated(0.f, 32.f + (324.f - 319.f * sc) * 0.5f));
+        paintShiftOverlay(g, shiftAmt_);
+    }
+}
+
+void LiftPanel::paintTransition(Graphics& g, int view, float p) {
     // snappy slide with a little overshoot: the old view is pushed out
     const float e = easeOutBack(p, 1.2f);
     const float d = static_cast<float>(an_.viewDir) * 600.f;

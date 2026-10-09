@@ -7,6 +7,7 @@
 
 #include "LiftPanel.h"
 #include "LiftProcessor.h"
+#include "PanelData.h"
 #include "tape/transport.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -380,6 +381,132 @@ int main(int argc, char** argv) {
         const juce::Image c = r.frame();
         r.step(0.25);
         check(sameImage(c, r.frame()), "reduced motion: idle SYNTH screen is still");
+    }
+    {
+        std::printf("-- shift layer\n");
+        Rig r;
+        auto& p = *r.panel;
+        TapeRuntime& rt2 = r.proc.runtime();
+        const double fr = rt2.frames;
+        for (int i = 0; i < 48000 * 6; ++i) {  // known material on T1 and T2
+            rt2.ch[0][0][i] = rt2.ch[0][1][i] = 0.5f;
+            rt2.ch[1][0][i] = rt2.ch[1][1][i] = 0.25f;
+        }
+        p.pressMem(lift::ui::kShiftSlot);
+        r.step(0.2);
+        check(p.shiftActive(), "keypad slot above STOP is SHIFT; a tap latches it");
+        p.pressMem(2);  // top row, middle: DROP now (no clip yet, so nothing happens)
+        check(p.shiftActive(), "DROP sits in SHIFT's old slot");
+        p.setEnc(3, static_cast<float>(48000.0 / fr));  // SCRUB to 1 s
+        r.step(0.05);
+        p.pressKey(0);  // white 1: LOOP IN
+        p.setEnc(3, static_cast<float>(144000.0 / fr));
+        r.step(0.05);
+        p.pressKey(2);  // white 2: LOOP OUT
+        r.step(0.05);
+        std::printf("  loop %d..%d\n", rt2.loopStart, rt2.loopEnd);
+        check(std::abs(rt2.loopStart - 48000) <= 2 && std::abs(rt2.loopEnd - 144000) <= 2,
+              "SHIFT + white 1/2 set loop in/out at the playhead (engine loop 1 s .. 3 s)");
+        p.setEnc(3, static_cast<float>(96000.0 / fr));
+        r.step(0.05);
+        p.pressMem(1);  // SHIFT + LOOP
+        r.step(0.05);
+        check(std::abs(rt2.loopEnd - 96000) <= 2 && std::abs(rt2.loopStart - 48000) <= 2,
+              "SHIFT + LOOP ends the loop at the playhead (1 s .. 2 s)");
+        p.act("play");
+        p.pressKey(6);  // black 3: 2x
+        r.step(1.5);
+        check(std::abs(r.proc.speed.load() - 2.f) < 1e-3f && std::abs(rt2.engine.speedNow - 2.f) < 0.05f,
+              "SHIFT + black 3 sets 2x speed in the engine");
+        check(rt2.pos >= 48000.0 && rt2.pos < 96000.0, "playback stays inside the shifted loop");
+        p.pressKey(1);  // black 1: 0.5x
+        r.step(0.6);
+        check(std::abs(rt2.engine.speedNow - 0.5f) < 0.05f, "SHIFT + black 1 sets 0.5x speed");
+        p.pressMem(9);  // SHIFT + STOP
+        r.step(1.0 / 60.0);
+        check(!rt2.playing && rt2.engine.ramp == 0.f, "SHIFT + STOP stops at once (no tape-stop ramp)");
+        p.pressMem(0);  // SHIFT + LIFT: all tracks, loop region
+        r.step(0.05);
+        check(rt2.clipFrames == 48000 && std::abs(rt2.clip[0][100] - 0.75f) < 1e-6f, "SHIFT + LIFT lifts the sum of all tracks");
+        p.pressKey(7);  // white 5 (G): TRACK 2
+        r.step(0.02);
+        check(rt2.arm == 1, "SHIFT + white 5 arms track 2");
+        p.pressKey(13);  // C#4 = black 6: CLEAR (first press only asks)
+        r.step(0.1);
+        check(rt2.ch[rt2.arm][0][1000] != 0.f, "CLEAR asks before clearing");
+        p.pressKey(10);  // black 5: UNDO (nothing to undo yet: no change)
+        p.setEnc(3, static_cast<float>(48000.0 / fr));
+        r.step(0.05);
+        const float before = rt2.ch[1][0][53000];
+        p.pressMem(2);  // DROP (not a shift combo): overdub the lifted sum onto T2
+        r.step(0.05);
+        const float dropped = rt2.ch[1][0][53000];
+        p.pressKey(10);  // black 5: UNDO DROP
+        r.step(0.05);
+        std::printf("  T2 at 1 s: %.3f -> drop %.3f -> undo %.3f\n", before, dropped, rt2.ch[1][0][53000]);
+        check(std::abs(dropped - (before + 0.75f)) < 1e-4f && rt2.ch[1][0][53000] == before, "UNDO DROP restores the track");
+        p.pressKey(13);
+        r.step(0.6);
+        check(rt2.ch[1][0][1000] == 0.f && rt2.ch[1][0][48000 * 5] == 0.f && rt2.ch[0][0][1000] == 0.5f,
+              "CLEAR on the second press clears only the armed track");
+        p.pressMem(lift::ui::kShiftSlot);
+        check(!p.shiftActive(), "tap SHIFT again releases the latch");
+        p.setShiftKey(true);
+        check(p.shiftActive(), "holding the computer Shift key shifts");
+        p.setShiftKey(false);
+        check(!p.shiftActive(), "releasing it unshifts");
+        p.act("mode:synth");
+        p.setShiftKey(true);
+        p.pressKey(9);  // white 6 on SYNTH: OCT +2
+        p.setShiftKey(false);
+        p.noteOn(9);
+        r.step(0.1);
+        check(r.proc.uiSynthNote.load() == 48 + 24 + 9, "SHIFT + white 6 on SYNTH sets octave +2 for the keyboard");
+        p.noteOff();
+    }
+    {
+        // shift off vs on, full panel (pixel diffs are checked in the render script)
+        lift::LiftProcessor pr;
+        pr.prepareToPlay(48000.0, 512);
+        lift::LiftPanel pn(pr);
+        pn.advance(0.0);
+        snap(pn, dir, "juce_shift_off.png");
+        pn.setShiftKey(true);
+        pn.advance(0.0);
+        pn.advance(1.0);
+        snap(pn, dir, "juce_shift_on.png");
+    }
+    if (anim) {
+        std::printf("-- shift frames\n");
+        const juce::File sdir = dir.getParentDirectory().getChildFile("shift");
+        sdir.deleteRecursively();
+        sdir.createDirectory();
+        Rig r;
+        auto& p = *r.panel;
+        const juce::Rectangle<int> crop =
+            juce::Rectangle<float>(lift::ui::kDevX + 40.f, lift::ui::kDevY + 236.f, 644.f, 616.f).getSmallestIntegerContainer();
+        std::vector<Event> ev = {{0.1, [](lift::LiftPanel& q) { q.act("play"); }},
+                                 {0.5, [](lift::LiftPanel& q) { q.setShiftKey(true); }},
+                                 {1.1, [](lift::LiftPanel& q) { q.pressKey(6); }},
+                                 {1.6, [](lift::LiftPanel& q) { q.pressKey(0); }},
+                                 {2.1, [](lift::LiftPanel& q) { q.setShiftKey(false); }},
+                                 {2.7, [](lift::LiftPanel& q) { q.pressMem(lift::ui::kShiftSlot); }},
+                                 {3.2, [](lift::LiftPanel& q) { q.pressMem(1); }},
+                                 {3.8, [](lift::LiftPanel& q) { q.pressMem(9); }},
+                                 {4.4, [](lift::LiftPanel& q) { q.pressMem(lift::ui::kShiftSlot); }}};
+        size_t next = 0;
+        const int n = static_cast<int>(5.0 * 30.0);
+        for (int f = 0; f < n; ++f) {
+            while (next < ev.size() && ev[next].t <= f / 30.0 + 1e-9) {
+                ev[next].f(p);
+                ++next;
+            }
+            r.step(1.0 / 30.0);
+            const juce::Image img = p.createComponentSnapshot(crop, true, 1.0f);
+            juce::FileOutputStream os(sdir.getChildFile(juce::String::formatted("f%03d.png", f)));
+            juce::PNGImageFormat().writeImageToStream(img, os);
+        }
+        std::printf("  %d frames in %s\n", n, sdir.getFullPathName().toRawUTF8());
     }
     if (anim) {
         std::printf("-- animation frames\n");

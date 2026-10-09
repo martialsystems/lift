@@ -75,7 +75,13 @@ void LiftProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     const int need = juce::jmax(samplesPerBlock, kChunk);
     if (need > synthSize_) {
         synth_.allocate(static_cast<size_t>(need), true);
+        zero_.allocate(static_cast<size_t>(need), true);
+        resample_.allocate(static_cast<size_t>(need), true);
         synthSize_ = need;
+    }
+    if (undo_[0] == nullptr) {
+        undo_[0].allocate(static_cast<size_t>(rt_->frames), true);
+        undo_[1].allocate(static_cast<size_t>(rt_->frames), true);
     }
     uiFrames.store(rt_->frames);
 }
@@ -136,8 +142,87 @@ void LiftProcessor::apply(const Command& c) noexcept {
     case Cmd::Lift:
         tape_lift(rt);
         break;
-    case Cmd::Drop:
+    case Cmd::Drop: {
+        // keep what is about to be overdubbed so UNDO can put it back
+        const int start = static_cast<int>(rt.pos);
+        const int n = juce::jmin(rt.clipFrames, rt.frames - start);
+        if (undo_[0] != nullptr && n > 0 && start >= 0) {
+            for (int c = 0; c < 2; ++c) {
+                const float* src = rt.ch[rt.arm][c] + start;
+                float* dst = undo_[c].get();
+                for (int i = 0; i < n; ++i) {
+                    dst[i] = src[i];
+                }
+            }
+            undoStart_ = start;
+            undoFrames_ = n;
+            undoTrack_ = rt.arm;
+        }
         tape_drop(rt, true);
+        break;
+    }
+    case Cmd::UndoDrop:
+        if (undoStart_ >= 0) {
+            for (int c = 0; c < 2; ++c) {
+                float* dst = rt.ch[undoTrack_][c] + undoStart_;
+                const float* src = undo_[c].get();
+                for (int i = 0; i < undoFrames_; ++i) {
+                    dst[i] = src[i];
+                }
+            }
+            undoStart_ = -1;
+        }
+        break;
+    case Cmd::LoopSet:
+        rt.loopStart = juce::jlimit(0, juce::jmax(0, rt.frames - 1), c.a);
+        rt.loopEnd = c.b > rt.loopStart ? juce::jmin(c.b, rt.frames) : 0;
+        if (rt.loopEnd > rt.loopStart && (rt.pos < rt.loopStart || rt.pos >= rt.loopEnd)) {
+            rt.pos = rt.loopStart;
+        }
+        break;
+    case Cmd::HardStop:
+        transport_stop(rt);
+        rt.engine.ramp = 0.f;
+        break;
+    case Cmd::LiftAll: {
+        int start = 0, end = rt.frames;
+        if (rt.loopEnd > rt.loopStart) {
+            start = rt.loopStart;
+            end = juce::jmin(rt.loopEnd, rt.frames);
+        }
+        const int n = end - start;
+        if (rt.clip[0] != nullptr && n > 0 && n <= rt.frames) {
+            for (int c = 0; c < 2; ++c) {
+                float* dst = rt.clip[c];
+                for (int i = 0; i < n; ++i) {
+                    float sum = 0.f;
+                    for (int t = 0; t < kTrackCount; ++t) {
+                        sum += rt.ch[t][c][start + i];
+                    }
+                    dst[i] = sum;
+                }
+            }
+            rt.clipFrames = n;
+        }
+        break;
+    }
+    case Cmd::Clear:
+        if (c.a >= 0 && c.a < kTrackCount) {
+            clearTrack_ = c.a;
+            clearPos_ = 0;
+        }
+        break;
+    case Cmd::Jump:
+        if (rt.frames > 0) {
+            rt.pos = juce::jlimit(0.0, static_cast<double>(rt.frames - 1), c.v);
+        }
+        break;
+    case Cmd::Character:
+        transport_bind_character(rt, c.a);
+        lastBias_ = -1.f;  // re-apply the BIAS and REC LVL knobs over the row
+        break;
+    case Cmd::RecSource:
+        recSource_ = juce::jlimit(0, 2, c.a);
         break;
     case Cmd::Rev:
         rt.reverse = c.a != 0;
@@ -218,6 +303,22 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         float* s = synth_.get();
         voice_.render(s, m, sampleRate_);
         pushScope(s, m);
+        if (clearTrack_ >= 0) {
+            // CLEAR in slices so no block does all of it
+            const int end = juce::jmin(rt.frames, clearPos_ + 65536);
+            for (int c = 0; c < 2; ++c) {
+                float* x = rt.ch[clearTrack_][c];
+                for (int i = clearPos_; i < end; ++i) {
+                    x[i] = 0.f;
+                }
+            }
+            clearPos_ = end;
+            if (clearPos_ >= rt.frames) {
+                clearTrack_ = -1;
+            }
+        }
+        // record source: the placeholder voice, the (not yet built) input, or the tape output
+        const float* in = recSource_ == 0 ? s : recSource_ == 1 ? zero_.get() : resample_.get();
         if (rt.playing && rt.frames > 0) {
             // Track meters: peak of what is on each track under the head.
             const int p0 = juce::jlimit(0, rt.frames - 1, static_cast<int>(rt.pos));
@@ -233,7 +334,10 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
                 trackPeak[t] = juce::jmax(trackPeak[t], pk);
             }
         }
-        process_block(rt, s, s, outL + start, outR + start, m);
+        process_block(rt, in, in, outL + start, outR + start, m);
+        for (int i = 0; i < m; ++i) {
+            resample_[i] = outL[start + i];
+        }
         for (int i = 0; i < m; ++i) {
             outL[start + i] += s[i];  // input monitor
             if (outR != outL) {
@@ -252,6 +356,9 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     uiSynthNote.store(voice_.gate ? voice_.note : -1, std::memory_order_relaxed);
     uiWowPhase.store(static_cast<float>(rt.engine.wowPhase), std::memory_order_relaxed);
     uiWowDepth.store(rt.engine.p.wowDepth + rt.engine.p.flutterDepth, std::memory_order_relaxed);
+    uiLoopStart.store(rt.loopStart, std::memory_order_relaxed);
+    uiLoopEnd.store(rt.loopEnd, std::memory_order_relaxed);
+    uiClipFrames.store(rt.clipFrames, std::memory_order_relaxed);
     uiPos.store(rt.pos, std::memory_order_relaxed);
     uiPlaying.store(rt.playing, std::memory_order_relaxed);
     uiRecording.store(rt.recording, std::memory_order_relaxed);

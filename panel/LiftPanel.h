@@ -45,7 +45,19 @@ public:
     // Screen area in component coordinates (what the animation repaints).
     static juce::Rectangle<int> screenArea();
 
+    // Shift layer (see panel/SHIFT.md). Tap SHIFT to latch, press and hold it
+    // (or hold the computer's Shift key) for momentary shift.
+    bool shiftActive() const { return shiftLatch_ || shiftMouse_ || shiftKey_; }
+    void setShiftKey(bool down);              // the computer Shift key
+    void pressMem(int slot) { memAct(slot); } // a click on a keypad slot
+    void pressKey(int note);                  // a key press: plays, or runs its shifted function
+    juce::String shiftLabel(int group, int kind, int idx, bool& real) const;
+    int shiftGroup() const;                   // 0 transport (TAPE, MIX, IN, BAY), 1 SYNTH, 2 DRUM
+    int loopIn() const { return loopIn_; }
+    int loopOut() const { return loopOut_; }
+
     void paint(juce::Graphics& g) override;
+    void modifierKeysChanged(const juce::ModifierKeys& mods) override;
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
@@ -131,6 +143,30 @@ private:
     int heldKeyCode_ = 0;
     bool mouseNote_ = false;
 
+    // shift layer state
+    bool shiftLatch_ = false, shiftMouse_ = false, shiftKey_ = false, shiftWas_ = false;
+    double shiftDownT_ = 0.0;
+    float shiftAmt_ = 0.f;
+    double shiftOnT_ = -10.0;
+    int lastFnKind_ = -1, lastFnIdx_ = -1;
+    double lastFnT_ = -10.0;
+    int clearConfirm_ = -1;
+    double clearT_ = -10.0;
+    std::array<int, 4> marks_{{0, 0, 0, 0}};
+    int nextMark_ = 0;
+    int loopIn_ = 0;
+    int loopOut_ = LiftProcessor::kLoopSeconds * 48000;
+    int transpose_ = 0, seqDiv_ = 16, drumDiv_ = 16, drumLen_ = 16, swing_ = 0, recSource_ = 0, character_ = 0;
+    void updateShift();
+    void shiftKeyFn(int note);
+    void shiftCombo(int fn);
+    void sendLoop();
+    void markFn(int kind, int idx);
+    int midiOf(int n) const { return 48 + 12 * oct_ + n + transpose_; }
+    void paintShiftOverlay(juce::Graphics& g, float amt);
+    void paintShiftBloom(juce::Graphics& g, juce::Rectangle<float> key, float amt);
+    juce::Rectangle<int> shiftKeyArea() const;
+
     double lastTick_ = 0.0;
     double t_ = 0.0;
     bool reducedMotion_ = false;
@@ -183,6 +219,7 @@ private:
     void paintStatus(juce::Graphics& g);
     void paintView(juce::Graphics& g);
     void paintViewFor(juce::Graphics& g, int view);
+    void paintTransition(juce::Graphics& g, int view, float p);
     void paintScreenBg(juce::Graphics& g);
     double getSampleRateForScope() const { return proc_.getSampleRate() > 0.0 ? proc_.getSampleRate() : 48000.0; }
     void paintViewTape(juce::Graphics& g);
