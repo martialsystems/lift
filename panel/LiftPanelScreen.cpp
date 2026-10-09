@@ -95,6 +95,19 @@ void LiftPanel::advance(double dtD) {
     const bool snap = reducedMotion_;
     bool busy = false;
 
+    // state sync with the processor: push panel changes; MIDI start/stop
+    // moved the tape, so the transport keys follow
+    pushUi();
+    const int ts = proc_.transportSerial.load();
+    if (ts != seenTransport_) {
+        seenTransport_ = ts;
+        playing_ = proc_.midiPlay.load();
+        rec_ = false;
+        rev_ = false;
+        busy = true;
+    }
+    busy = busy || (picker_ != Picker::None && (t_ - pickT_ < 0.5 || t_ - pickStepT_ < 0.6));
+
     // view changes start a slide; the status label pops
     const int view = bay_ ? 5 : static_cast<int>(mode_);
     if (view != an_.view) {
@@ -180,7 +193,7 @@ void LiftPanel::advance(double dtD) {
     busy = busy || view == Synth;  // live scope / idle breathing
 
     // DRUM: the playhead runs on the real tape clock at the placeholder tempo
-    const double stepsPerSec = screen::kTempoBpm / 60.0 * 4.0;
+    const double stepsPerSec = proc_.tempoBpm.load() / 60.0 * 4.0;
     an_.drumPhase = std::fmod(pos / kSampleRate * stepsPerSec, 16.0);
     const bool playing = proc_.uiPlaying.load();
     const int step = static_cast<int>(an_.drumPhase) % 16;
@@ -393,7 +406,7 @@ void LiftPanel::paintStatus(Graphics& g) {
         juce::String s;
         Colour c;
     };
-    std::vector<Item> items = {{"120", hex(0x8c877b)},
+    std::vector<Item> items = {{juce::String(juce::roundToInt(proc_.tempoBpm.load())), proc_.clockSlaved.load() ? hex(0xede6d6) : hex(0x8c877b)},
                                {juce::String(speedOf(), 2) + juce::String::fromUTF8("\xc3\x97"), hex(0xede6d6)},
                                {"T" + juce::String(arm_ + 1), hex(SCR[arm_])}};
     if (rev_) {
@@ -425,6 +438,12 @@ void LiftPanel::paintView(Graphics& g) {
         const float sc = 600.f / 720.f;
         g.addTransform(AffineTransform::scale(sc).translated(0.f, 32.f + (324.f - 319.f * sc) * 0.5f));
         paintShiftOverlay(g, shiftAmt_);
+    }
+    if (picker_ != Picker::None) {
+        Graphics::ScopedSaveState o(g);
+        const float sc = 600.f / 720.f;
+        g.addTransform(AffineTransform::scale(sc).translated(0.f, 32.f + (324.f - 319.f * sc) * 0.5f));
+        paintPicker(g);
     }
 }
 
@@ -523,7 +542,7 @@ void LiftPanel::paintViewTape(Graphics& g) {
     // (tape clock, placeholder 120 BPM).
     float ty = 0.f, sx = 1.f;
     if (playing && !reducedMotion_) {
-        const double beats = pos / kSampleRate * screen::kTempoBpm / 60.0;
+        const double beats = pos / kSampleRate * proc_.tempoBpm.load() / 60.0;
         const float fr = static_cast<float>(beats - std::floor(beats));
         const float h = std::pow(juce::jmax(0.f, 1.f - fr * 3.f), 2.f);
         ty = -8.f * h;

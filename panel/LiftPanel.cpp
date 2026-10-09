@@ -34,12 +34,11 @@ const juce::String kLarrow = juce::String::fromUTF8("\xe2\x86\x90");
 }  // namespace
 
 LiftPanel::LiftPanel(LiftProcessor& p) : proc_(p) {
-    for (int m = 0; m < 5; ++m) {
-        for (int i = 0; i < 4; ++i) {
-            enc_[static_cast<size_t>(m)][static_cast<size_t>(i)] = ENC_DEFAULT[m][i];
-        }
-    }
-    cords_ = {{0, 0, 0, false}, {1, 1, 1, false}, {8, 3, 2, false}, {15, 2, 3, false}, {9, 9, 0, false}, {5, 12, 1, false}};
+    // the processor keeps the state (it outlives the editor and saves it)
+    learn_.fill(-1);
+    applyUi(proc_.uiState());
+    lastPushed_ = captureUi();
+    seenTransport_ = proc_.transportSerial.load();
     info_ = "Drag from an OUT jack to an IN jack to patch. Drag a knob up or down to turn it.";
     setSize(kW, kH);
     setWantsKeyboardFocus(true);
@@ -57,11 +56,15 @@ LiftPanel::LiftPanel(LiftProcessor& p) : proc_(p) {
     an_.lastCords = cords_.size();
     advance(0.0);
     lastTick_ = juce::Time::getMillisecondCounterHiRes();
+    proc_.setListener(this);
     startTimerHz(60);
 }
 
 LiftPanel::~LiftPanel() {
     stopTimer();
+    pushUi();
+    proc_.setListener(nullptr);
+    proc_.learnTarget.store(-1);
 }
 
 // ---------------------------------------------------------------- helpers
@@ -354,12 +357,13 @@ void LiftPanel::act(const juce::String& a) {
 }
 
 void LiftPanel::noteOn(int n) {
-    if (heldNote_ >= 0) {
-        proc_.send(Cmd::NoteOff, midiOf(heldNote_));
+    if (heldMidi_ >= 0) {
+        proc_.send(Cmd::NoteOff, heldMidi_);
     }
     heldNote_ = n;
     note_ = n;
-    proc_.send(Cmd::NoteOn, midiOf(n));
+    heldMidi_ = midiOf(n);
+    proc_.send(Cmd::NoteOn, heldMidi_, 100);
     repaint();
 }
 
@@ -367,9 +371,10 @@ void LiftPanel::noteOff(int n) {
     if (n >= 0 && n != heldNote_) {
         return;
     }
-    if (heldNote_ >= 0) {
-        proc_.send(Cmd::NoteOff, -1);
+    if (heldMidi_ >= 0) {
+        proc_.send(Cmd::NoteOff, heldMidi_);  // only the panel's note: MIDI-held notes keep sounding
     }
+    heldMidi_ = -1;
     heldNote_ = -1;
     heldKeyCode_ = 0;
     note_ = -1;
@@ -379,6 +384,12 @@ void LiftPanel::noteOff(int n) {
 void LiftPanel::setEnc(int i, float v) {
     auto& e = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
     e = juce::jlimit(0.f, 1.f, v);
+    if (learnArm_) {
+        const int target = static_cast<int>(mode_) * 4 + i;
+        if (proc_.learnTarget.exchange(target) != target) {
+            flash("LEARN " + knobName(target) + ": MOVE A CONTROL");
+        }
+    }
     if (mode_ == Tape) {
         syncEngine();
         if (i == 3) {
@@ -409,7 +420,21 @@ void LiftPanel::padAct(int k) {
 void LiftPanel::memAct(int k) {
     const char* ids[10] = {"lift", "loop", "shift", "rev", "drop", "rec", "octd", "play", "octu", "stop"};
     const int fn = MEM_FN[k];
-    if (shiftActive() && (fn == 0 || fn == 1 || fn == 5 || fn == 9)) {
+    if (picker_ != Picker::None && fn != 2) {
+        // the slot picker owns the keypad: OCT-/OCT+ step, PLAY (or the same
+        // combo) confirms, anything else cancels
+        if (fn == 6 || fn == 8) {
+            pickStep(fn == 6 ? -1 : 1);
+        } else if (fn == 7 || (shiftActive() && ((fn == 4 && picker_ == Picker::Save) || (fn == 7 && picker_ == Picker::Load)))) {
+            pickConfirm();
+        } else if (shiftActive() && (fn == 4 || fn == 7)) {
+            openPicker(fn == 4 ? Picker::Save : Picker::Load);
+        } else {
+            pickCancel();
+        }
+        return;
+    }
+    if (shiftActive() && (fn == 0 || fn == 1 || fn == 5 || fn == 9 || fn == 3 || fn == 4 || fn == 7)) {
         shiftCombo(fn);
         return;
     }
@@ -623,6 +648,7 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
     if (k >= 0) {
         focusKnob_ = k;
         kd_ = {true, k, c.y, enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)]};
+        pickDragY_ = c.y;
         return;
     }
     const int key = keyAt(d);
@@ -661,6 +687,16 @@ void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
         if (drag_.started) {
             drag_.p = toDev(c);
             repaint();
+        }
+        return;
+    }
+    if (kd_.active && picker_ != Picker::None) {
+        // a knob scrolls the slot number: one slot per 6 px (24 px fine)
+        const float per = (e.mods.isShiftDown() || shiftActive()) ? 24.f : 6.f;
+        const int steps = static_cast<int>((pickDragY_ - c.y) / per);
+        if (steps != 0) {
+            pickStep(steps);
+            pickDragY_ -= static_cast<float>(steps) * per;
         }
         return;
     }
@@ -807,6 +843,10 @@ void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheel
     if (delta == 0.f) {
         return;
     }
+    if (picker_ != Picker::None) {
+        pickStep(delta > 0.f ? 1 : -1);
+        return;
+    }
     const float step = (e.mods.isShiftDown() || shiftActive()) ? 0.005f : 0.025f;
     setEnc(k, enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)] + (delta > 0.f ? step : -step));
 }
@@ -814,6 +854,35 @@ void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheel
 // ---------------------------------------------------------------- keys
 
 bool LiftPanel::keyPressed(const juce::KeyPress& key) {
+    if (picker_ != Picker::None) {
+        const int kc = key.getKeyCode();
+        const juce::juce_wchar ch = key.getTextCharacter();
+        const int big = key.getModifiers().isShiftDown() ? 10 : 1;
+        if (kc == juce::KeyPress::escapeKey) {
+            pickCancel();
+        } else if (kc == juce::KeyPress::returnKey) {
+            pickConfirm();
+        } else if (kc == juce::KeyPress::upKey || kc == juce::KeyPress::rightKey) {
+            pickStep(big);
+        } else if (kc == juce::KeyPress::downKey || kc == juce::KeyPress::leftKey) {
+            pickStep(-big);
+        } else if (kc == juce::KeyPress::backspaceKey) {
+            typed_ = typed_.dropLastCharacters(1);
+            if (typed_.isNotEmpty()) {
+                pickSlot_ = juce::jlimit(SlotStore::kFirst, SlotStore::kLast, typed_.getIntValue());
+            }
+            repaint(screenArea());
+        } else if (ch >= '0' && ch <= '9') {
+            typed_ = (typed_.length() >= 3 ? juce::String() : typed_) + juce::String::charToString(ch);
+            const int v = typed_.getIntValue();
+            if (v >= SlotStore::kFirst) {
+                pickSlot_ = juce::jmin(SlotStore::kLast, v);
+            }
+            pickStepT_ = t_;
+            repaint(screenArea());
+        }
+        return true;  // the picker keeps the keyboard while it is open
+    }
     if (key == juce::KeyPress::escapeKey) {
         if (drag_.active) {
             drag_ = {};

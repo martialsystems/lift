@@ -20,6 +20,7 @@ struct Cord {
     int i = 0;       // input jack 0..15
     int c = 0;       // cable colour index (cosmetic)
     bool st = false; // stackable plug
+    bool operator==(const Cord&) const = default;
 };
 
 struct PatchSnapshot {

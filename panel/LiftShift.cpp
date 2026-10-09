@@ -123,14 +123,17 @@ juce::Rectangle<int> LiftPanel::shiftKeyArea() const {
 
 juce::String LiftPanel::shiftLabel(int group, int kind, int idx, bool& real) const {
     real = true;
-    if (kind == 2) {  // keypad combos: 0 REC, 1 LOOP, 2 STOP, 3 LIFT
+    if (kind == 2) {  // keypad combos: 0 REC, 1 LOOP, 2 STOP, 3 LIFT, 4 DROP, 5 PLAY, 6 REV
         switch (idx) {
         case 0:
             real = recSource_ != 1;
             return juce::String("SOURCE: ") + kRecSources[recSource_];
         case 1: return "LOOP END HERE";
         case 2: return "HARD STOP";
-        default: return "LIFT ALL TRACKS";
+        case 3: return "LIFT ALL TRACKS";
+        case 4: return "SAVE SLOT";
+        case 5: return "LOAD SLOT";
+        default: return learnArm_ ? "MIDI LEARN: ON" : "MIDI LEARN";
         }
     }
     if (group == 0) {
@@ -304,6 +307,17 @@ void LiftPanel::shiftCombo(int fn) {
         an_.liftT = t_;
         flash("LIFTED ALL TRACKS");
         markFn(2, 3);
+    } else if (fn == 4) {  // DROP: save to a slot
+        openPicker(Picker::Save);
+        markFn(2, 4);
+    } else if (fn == 7) {  // PLAY: load a slot
+        openPicker(Picker::Load);
+        markFn(2, 5);
+    } else if (fn == 3) {  // REV: MIDI learn on/off
+        learnArm_ = !learnArm_;
+        proc_.learnTarget.store(-1);
+        flash(learnArm_ ? "MIDI LEARN: TOUCH A KNOB" : "MIDI LEARN OFF");
+        markFn(2, 6);
     }
     repaint();
 }
@@ -414,9 +428,12 @@ void LiftPanel::paintShiftOverlay(Graphics& g, float amtLin) {
         row(1, i, i < 5 ? 372.f : 540.f, 68.f + static_cast<float>(i % 5) * 19.f, order++);
     }
     svgText(g, "KEYPAD + SHIFT", 372.f, 178.f, 9.f, grey, -1, false, 1.f);
-    static const char* keys[4] = {"REC", "LOOP", "STOP", "LIFT"};
-    for (int i = 0; i < 4; ++i) {
-        const float x = i < 2 ? 372.f : 540.f, y = 198.f + static_cast<float>(i % 2) * 19.f;
+    // keypad combos: REC LOOP DROP PLAY | STOP LIFT REV (legend index order 0 1 4 5 | 2 3 6)
+    static const char* keys[7] = {"REC", "LOOP", "STOP", "LIFT", "DROP", "PLAY", "REV"};
+    static const int col[7] = {0, 0, 1, 1, 0, 0, 1};
+    static const int rowN[7] = {0, 1, 0, 1, 2, 3, 2};
+    for (int i = 0; i < 7; ++i) {
+        const float x = col[i] == 0 ? 372.f : 540.f, y = 198.f + static_cast<float>(rowN[i]) * 19.f;
         const float rp = reducedMotion_ ? 1.f : clamp01Shift((since - static_cast<float>(order) * 0.012f) / 0.18f);
         const float ra = a * clamp01Shift(rp * 1.5f);
         g.setColour((i == 0 || i == 2) ? hex(0xea3e3e, ra) : hex(0x4ec4ec, ra));

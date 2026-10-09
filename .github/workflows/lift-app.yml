@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DLIFT_APP_ONLY=ON
+        run: cmake -S . -B build -A x64 -DLIFT_APP_ONLY=ON
       - name: Build
         run: cmake --build build --config Release --parallel --target LiftApp_Standalone LiftApp_VST3
       - name: Package

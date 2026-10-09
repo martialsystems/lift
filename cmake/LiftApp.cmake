@@ -22,6 +22,9 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/LiftPanelScreen.cpp
     ${LIFT_ROOT}/panel/LiftShift.cpp
     ${LIFT_ROOT}/panel/LiftProcessor.cpp
+    ${LIFT_ROOT}/panel/LiftSlots.cpp
+    ${LIFT_ROOT}/panel/SlotStore.cpp
+    ${LIFT_ROOT}/panel/UiState.cpp
 )
 juce_add_binary_data(lift_fonts
     HEADER_NAME LiftFontData.h
@@ -63,7 +66,7 @@ target_link_libraries(LiftApp PRIVATE lift_fonts juce::juce_audio_utils juce::ju
 # Headless check: renders the panel screens to PNG and drives the panel
 # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
 juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
-target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
 target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel)
 target_compile_definitions(lift_panel_check PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)

@@ -39,6 +39,9 @@ engines that are not built yet. TAPE, MIX, IN and BAY share the transport map.
 | SHIFT + LOOP | loop end at the playhead, loop on (real) |
 | SHIFT + STOP | hard stop, no tape-stop ramp (real) |
 | SHIFT + LIFT | lift the sum of all four tracks (real) |
+| SHIFT + DROP | save to a slot (screen slot picker, see MIDI.md) |
+| SHIFT + PLAY | load a slot |
+| SHIFT + REV | MIDI learn on/off |
 
 Loop points can now be set anywhere: the old fixed 0-8 s loop is only the
 starting value.

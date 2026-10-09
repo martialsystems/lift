@@ -17,7 +17,7 @@ namespace lift {
 // component's logical size is the prototype page at scale 1 (1432 x 996:
 // the control bar and info line, then the 1400 x 920 stage). LiftEditor
 // scales it to the window with a transform.
-class LiftPanel : public juce::Component, private juce::Timer {
+class LiftPanel : public juce::Component, private juce::Timer, private LiftProcessor::Listener {
 public:
     static constexpr int kW = 1432;
     static constexpr int kH = 996;
@@ -55,6 +55,21 @@ public:
     int shiftGroup() const;                   // 0 transport (TAPE, MIX, IN, BAY), 1 SYNTH, 2 DRUM
     int loopIn() const { return loopIn_; }
     int loopOut() const { return loopOut_; }
+
+    // Save slots (SHIFT + DROP = save, SHIFT + PLAY = load): a slot picker on
+    // the screen. OCT- / OCT+, any knob, the wheel, arrow keys or typed digits
+    // pick 001..999; PLAY, Enter or the same combo again confirms; STOP or Esc
+    // cancels.
+    enum class Picker { None, Save, Load };
+    void openPicker(Picker p);
+    void pickStep(int delta);
+    void pickConfirm();
+    void pickCancel();
+    Picker picker() const { return picker_; }
+    int pickSlot() const { return pickSlot_; }
+    // MIDI learn (SHIFT + REV): touch a knob, then move a controller.
+    bool learning() const { return learnArm_; }
+    UiState captureUi() const;
 
     void paint(juce::Graphics& g) override;
     void modifierKeysChanged(const juce::ModifierKeys& mods) override;
@@ -210,6 +225,27 @@ private:
     void topAct(int k);
     void timerCallback() override;
 
+    // processor state sync (LiftProcessor::Listener)
+    void applyUi(const UiState& s);
+    void pushUi();
+    void flushState() override { pushUi(); }
+    void stateLoaded(int slot) override;
+    void knobFromMidi(int target, float value) override;
+    void learned(int cc, int target) override;
+    void slotMessage(const juce::String& text) override { flash(text); repaint(); }
+    juce::String knobName(int target) const;
+    void paintPicker(juce::Graphics& g);
+    UiState lastPushed_;
+    std::array<int, 128> learn_;
+    bool learnArm_ = false;
+    int heldMidi_ = -1;
+    int seenTransport_ = 0;
+    Picker picker_ = Picker::None;
+    int pickSlot_ = 1;
+    double pickT_ = -10.0, pickStepT_ = -10.0;
+    juce::String typed_;
+    float pickDragY_ = 0.f;
+
     // painting (LiftPanelPaint.cpp)
     void paintTopBar(juce::Graphics& g);
     void paintCase(juce::Graphics& g);
@@ -221,7 +257,7 @@ private:
     void paintViewFor(juce::Graphics& g, int view);
     void paintTransition(juce::Graphics& g, int view, float p);
     void paintScreenBg(juce::Graphics& g);
-    double getSampleRateForScope() const { return proc_.getSampleRate() > 0.0 ? proc_.getSampleRate() : 48000.0; }
+    double getSampleRateForScope() const { return 48000.0; }  // the scope tap runs at the tape rate
     void paintViewTape(juce::Graphics& g);
     void paintViewSynth(juce::Graphics& g);
     void paintViewDrum(juce::Graphics& g);

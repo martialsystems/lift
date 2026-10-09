@@ -19,6 +19,8 @@
 #include <cstdio>
 #include <vector>
 
+void runStateChecks(const std::function<void(bool, const juce::String&)>& check);
+
 namespace {
 
 int g_fails = 0;
@@ -76,6 +78,7 @@ struct Rig {
         juce::AudioBuffer<float> buf(2, 512);
         juce::MidiBuffer midi;
         while (carry >= 512.0) {
+            midi.clear();
             buf.clear();
             proc.processBlock(buf, midi);
             carry -= 512.0;
@@ -284,6 +287,7 @@ int main(int argc, char** argv) {
         juce::AudioBuffer<float> buf(2, 512);
         juce::MidiBuffer midi;
         for (int done = 0; done < total; done += 512) {
+            midi.clear();
             buf.clear();
             proc.processBlock(buf, midi);
             outL.insert(outL.end(), buf.getReadPointer(0), buf.getReadPointer(0) + 512);
@@ -395,8 +399,11 @@ int main(int argc, char** argv) {
         p.pressMem(lift::ui::kShiftSlot);
         r.step(0.2);
         check(p.shiftActive(), "keypad slot above STOP is SHIFT; a tap latches it");
-        p.pressMem(2);  // top row, middle: DROP now (no clip yet, so nothing happens)
-        check(p.shiftActive(), "DROP sits in SHIFT's old slot");
+        p.pressMem(2);  // top row, middle: DROP now; SHIFT + DROP opens the SAVE slot picker
+        check(p.picker() == lift::LiftPanel::Picker::Save, "DROP sits in SHIFT's old slot (SHIFT + DROP = save)");
+        p.pickCancel();
+        p.pressMem(lift::ui::kShiftSlot);
+        check(p.shiftActive(), "SHIFT latches again after the picker closes");
         p.setEnc(3, static_cast<float>(48000.0 / fr));  // SCRUB to 1 s
         r.step(0.05);
         p.pressKey(0);  // white 1: LOOP IN
@@ -438,7 +445,7 @@ int main(int argc, char** argv) {
         p.setEnc(3, static_cast<float>(48000.0 / fr));
         r.step(0.05);
         const float before = rt2.ch[1][0][53000];
-        p.pressMem(2);  // DROP (not a shift combo): overdub the lifted sum onto T2
+        p.act("drop");  // DROP (SHIFT + DROP is save): overdub the lifted sum onto T2
         r.step(0.05);
         const float dropped = rt2.ch[1][0][53000];
         p.pressKey(10);  // black 5: UNDO DROP
@@ -475,7 +482,15 @@ int main(int argc, char** argv) {
         pn.advance(0.0);
         pn.advance(1.0);
         snap(pn, dir, "juce_shift_on.png");
+        pn.setShiftKey(false);
+        pn.openPicker(lift::LiftPanel::Picker::Save);
+        pn.pickStep(41);
+        pn.advance(0.0);
+        pn.advance(1.0);
+        snap(pn, dir, "juce_slot_picker.png");
+        pn.pickCancel();
     }
+    runStateChecks([](bool ok, const juce::String& what) { check(ok, what); });
     if (anim) {
         std::printf("-- shift frames\n");
         const juce::File sdir = dir.getParentDirectory().getChildFile("shift");

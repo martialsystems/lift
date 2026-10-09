@@ -3,9 +3,12 @@
 #pragma once
 
 #include "PatchBay.h"
+#include "SlotStore.h"
+#include "UiState.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
 #include <atomic>
 #include <memory>
 
@@ -16,7 +19,9 @@ namespace lift {
 // Commands from the panel (message thread) to the audio thread. Single
 // producer, single consumer, fixed size: no locks, no allocation.
 enum class Cmd : uint8_t {
-    Transport, Stop, Lift, Drop, Rev, Loop, Arm, Mute, Seek, NoteOn, NoteOff,
+    Transport, Stop, Lift, Drop, Rev, Loop, Arm, Mute, Seek,
+    NoteOn,      // a = note, b = velocity 1..127 (0 = 100)
+    NoteOff,     // a = note (-1 = every note the panel holds)
     // shift layer
     LoopSet,     // a = start frame, b = end frame (b <= a turns the loop off)
     HardStop,    // stop now, no ramp
@@ -37,19 +42,39 @@ struct Command {
 
 // PLACEHOLDER SOUND SOURCE. One saw + square voice with a filter and an AR
 // envelope so the keyboard has something to print to tape. It stands in for
-// the real engines (Loom ... Spool), which are not built yet.
+// the real engines (Loom ... Spool), which are not built yet. Mono, last-note
+// priority (legato back to a held note), velocity, pitch bend (+-2 semitones),
+// mod wheel vibrato and sustain pedal. Always runs at the tape rate (48 kHz).
 struct PlaceholderVoice {
     double phase = 0.0;
     double phase2 = 0.0;
-    double inc = 0.0;
+    double vibPhase = 0.0;
     float env = 0.f;
     float lp = 0.f;
+    float vel = 0.8f;
+    float bend = 0.f;   // semitones
+    float mod = 0.f;    // 0..1 vibrato depth (CC1)
     bool gate = false;
+    bool sustain = false;
     int note = -1;
-    void render(float* out, int n, double sampleRate) noexcept;
+    int held[16] = {};
+    int depth = 0;
+    void noteOn(int n, float velocity) noexcept;
+    void noteOff(int n) noexcept;  // n < 0: release every held note
+    void setSustain(bool on) noexcept;
+    void allOff() noexcept;
+    void render(float* out, int n) noexcept;
 };
 
-class LiftProcessor : public juce::AudioProcessor {
+// Message thread -> audio thread events are Commands; these go the other way
+// (MIDI that the message thread acts on: knob CCs, program change).
+struct MidiEvent {
+    uint8_t kind;  // 0 CC (a = number, b = value), 1 program change (a = slot)
+    int a;
+    int b;
+};
+
+class LiftProcessor : public juce::AudioProcessor, private juce::Timer {
 public:
     LiftProcessor();
     ~LiftProcessor() override;
@@ -57,7 +82,8 @@ public:
     // Tape length for the app: 60 s per track (the engine default of six
     // minutes per track costs ~550 MB).
     static constexpr int kTapeSeconds = 60;
-    static constexpr int kLoopSeconds = 8;  // default loop: 4 bars at the placeholder 120 BPM
+    static constexpr int kLoopSeconds = 8;  // default loop: 4 bars at 120 BPM
+    static constexpr int kStateVersion = 1; // saved-state format version
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -68,15 +94,18 @@ public:
     bool hasEditor() const override { return true; }
     const juce::String getName() const override { return "LIFT"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+    // Plug-in state: the same bytes as a save slot (tape audio included). The
+    // standalone keeps no session state (no autosave): it reopens the last
+    // saved slot instead.
+    void getStateInformation(juce::MemoryBlock&) override;
+    void setStateInformation(const void*, int) override;
 
     // ---- message thread API (the panel) ----
     void send(Cmd c, int a = 0, int b = 0, double v = 0.0) noexcept;
@@ -92,6 +121,45 @@ public:
     std::atomic<int> drumSwing{0};     // percent
     std::atomic<int> drumKit{0};
     std::atomic<int> synthEngine{0};   // the placeholder voice plays for every engine
+    // TAPE knobs (SPEED, BIAS, REC LVL) -> the engine atomics above.
+    void setTapeKnobs(const std::array<float, 4>& tape) noexcept;
+
+    // ---- saved state (message thread) ----
+    // The panel's state. The panel pushes its changes here; loads, MIDI knob
+    // CCs and MIDI learn come back to the panel through the Listener.
+    struct Listener {
+        virtual ~Listener() = default;
+        virtual void flushState() = 0;                    // push unsent changes now
+        virtual void stateLoaded(int slot) = 0;           // slot 0 = host state
+        virtual void knobFromMidi(int target, float value) = 0;
+        virtual void learned(int cc, int target) = 0;
+        virtual void slotMessage(const juce::String& text) = 0;
+    };
+    void setListener(Listener* l) noexcept { listener_ = l; }
+    const UiState& uiState() const noexcept { return ui_; }
+    void setUiState(const UiState& s);
+
+    enum class LoadResult { Ok, Empty, BadSlot, BadData, NewerVersion };
+    bool saveSlot(int slot);
+    LoadResult loadSlot(int slot);
+    bool reopenLast();                  // load the slot saved or loaded last
+    int currentSlot() const noexcept { return currentSlot_; }
+    SlotStore& slots() noexcept { return slots_; }
+    void setSlotFolder(const juce::File& f) { slots_ = SlotStore(f); }
+    juce::MemoryBlock saveState();
+    LoadResult loadState(const void* data, size_t size, int slot);
+
+    // ---- MIDI (see panel/MIDI.md) ----
+    // Fixed CC map: knob target (screen * 4 + knob) for a CC, -1 = none.
+    static int fixedCcTarget(int cc, int currentScreen) noexcept;
+    static bool reservedCc(int cc) noexcept;  // CCs the voice/bank use; never learned
+    std::atomic<int> learnTarget{-1};  // armed by the panel: the next CC binds to it
+    void setKnob(int target, float value);
+    void drainMidiEvents();            // the 30 Hz timer; tests call it directly
+    std::atomic<double> tempoBpm{120.0};
+    std::atomic<bool> clockSlaved{false};   // following MIDI clock in
+    std::atomic<int> transportSerial{0};    // bumped when MIDI starts or stops the tape
+    std::atomic<bool> midiPlay{false};      // what that MIDI start/stop left the transport doing
 
     // ---- audio thread -> panel ----
     std::atomic<double> uiPos{0.0};
@@ -109,19 +177,26 @@ public:
     std::atomic<float> uiWowPhase{0.f};       // engine wow LFO phase, radians
     std::atomic<float> uiWowDepth{0.f};       // wow + flutter depth (fraction)
 
-    // Scope tap: the placeholder voice output, written by the audio thread into
-    // a fixed single-producer/single-consumer ring (no locks, no allocation).
-    // The panel drains it on the message thread. Drops samples when full.
+    // Scope tap: the placeholder voice output (48 kHz), written by the audio
+    // thread into a fixed single-producer/single-consumer ring (no locks, no
+    // allocation). The panel drains it on the message thread.
     static constexpr int kScopeSize = 8192;
     int readScope(float* dest, int maxSamples) noexcept;
 
     // Test access (not real-time safe to use while audio runs).
     TapeRuntime& runtime() noexcept { return *rt_; }
+    const PlaceholderVoice& voice() const noexcept { return voice_; }
 
 private:
     void apply(const Command& c) noexcept;
+    void ensureTracks();
+    void renderInternal(float* outL, float* outR, int m) noexcept;  // m <= kChunk, at 48 kHz
+    void handleMidiIn(const juce::MidiMessage& m, int samplePos) noexcept;
+    void post(uint8_t kind, int a, int b) noexcept;
+    void timerCallback() override { drainMidiEvents(); }
 
     std::unique_ptr<TapeRuntime> rt_;
+    bool tracksReady_ = false;
     bool prepared_ = false;
     double sampleRate_ = 48000.0;
     juce::AbstractFifo fifo_{256};
@@ -140,9 +215,36 @@ private:
     int clearTrack_ = -1;
     int clearPos_ = 0;
     int recSource_ = 0;
-    int synthSize_ = 0;
     float lastBias_ = -1.f;
     float lastDrive_ = -1.f;
+    float trackPeak_[4] = {};
+
+    // 48 kHz tape -> device rate. Exact pass-through at 48 kHz; otherwise a
+    // 4-point (Catmull-Rom) interpolator pulling 48 kHz chunks on demand.
+    double ratio_ = 1.0;       // internal samples per output sample
+    double frac_ = 0.0;
+    float hist_[2][4] = {};
+    juce::HeapBlock<float> intL_, intR_;
+    int intPos_ = 0, intLen_ = 0;
+
+    // MIDI
+    juce::AbstractFifo midiFifo_{512};
+    MidiEvent midiEvents_[512];
+    int bankMsb_ = 0;
+    juce::int64 sampleCount_ = 0;    // device samples since prepare
+    juce::int64 lastClock_ = -1;
+    double clockIntervals_[24] = {};
+    int clockN_ = 0, clockW_ = 0;
+    double clockOutPhase_ = 0.0;     // device samples until the next clock out
+    bool wasPlaying_ = false;
+    int outNotes_[32] = {};          // panel notes to echo: note | (vel << 8), negative = off
+    int outNoteCount_ = 0;
+
+    // state
+    UiState ui_;
+    SlotStore slots_;
+    int currentSlot_ = 0;
+    Listener* listener_ = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LiftProcessor)
 };
