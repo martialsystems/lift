@@ -26,6 +26,16 @@ FetchContent_Declare(juce
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(juce)
+set(LIFT_ROOT ${CMAKE_SOURCE_DIR})
+
+# CI and release builds of the JUCE app only (no libopus, no AppKit window,
+# no fences): cmake -DLIFT_APP_ONLY=ON
+option(LIFT_APP_ONLY "Configure only the JUCE app and its check" OFF)
+if(LIFT_APP_ONLY)
+    enable_testing()
+    include(${CMAKE_SOURCE_DIR}/cmake/LiftApp.cmake)
+    return()
+endif()
 
 # JUCE module sources compile once here, without the project's -Werror.
 add_library(lift_juce STATIC)
@@ -158,70 +168,7 @@ endif()
 # would compile JUCE twice).
 option(LIFT_BUILD_APP "Build the JUCE panel app and plugin" ON)
 if(LIFT_BUILD_APP)
-    set(LIFT_TAPE_SOURCES
-        ${CMAKE_SOURCE_DIR}/src/tape/character.cpp
-        ${CMAKE_SOURCE_DIR}/src/tape/model.cpp
-        ${CMAKE_SOURCE_DIR}/src/tape/transport.cpp
-        ${CMAKE_SOURCE_DIR}/src/tape/edit.cpp
-        ${CMAKE_SOURCE_DIR}/src/tape/engine.cpp
-        ${CMAKE_SOURCE_DIR}/src/tape/engine_prepare.cpp
-        ${CMAKE_SOURCE_DIR}/src/audio/prepare.cpp
-        ${CMAKE_SOURCE_DIR}/src/audio/process_block.cpp
-    )
-    set(LIFT_PANEL_SOURCES
-        ${CMAKE_SOURCE_DIR}/panel/Fonts.cpp
-        ${CMAKE_SOURCE_DIR}/panel/LiftPanel.cpp
-        ${CMAKE_SOURCE_DIR}/panel/LiftPanelPaint.cpp
-        ${CMAKE_SOURCE_DIR}/panel/LiftPanelScreen.cpp
-        ${CMAKE_SOURCE_DIR}/panel/LiftShift.cpp
-        ${CMAKE_SOURCE_DIR}/panel/LiftProcessor.cpp
-    )
-    juce_add_binary_data(lift_fonts
-        HEADER_NAME LiftFontData.h
-        NAMESPACE LiftFontData
-        SOURCES
-            assets/fonts/Jost-Regular.ttf
-            assets/fonts/Jost-Medium.ttf
-            assets/fonts/Jost-SemiBold.ttf
-            assets/fonts/Jost-Bold.ttf
-            assets/fonts/SpaceMono-Regular.ttf
-            assets/fonts/SpaceMono-Bold.ttf
-    )
-    set_target_properties(lift_fonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-    set(LIFT_APP_FORMATS Standalone VST3)
-    if(APPLE)
-        list(APPEND LIFT_APP_FORMATS AU)
-    endif()
-    juce_add_plugin(LiftApp
-        VERSION 0.1.0
-        COMPANY_NAME "Martial Systems"
-        PRODUCT_NAME "LIFT"
-        BUNDLE_ID com.martialsystems.lift
-        PLUGIN_MANUFACTURER_CODE Mrtl
-        PLUGIN_CODE Lft1
-        IS_SYNTH TRUE
-        NEEDS_MIDI_INPUT TRUE
-        COPY_PLUGIN_AFTER_BUILD FALSE
-        FORMATS ${LIFT_APP_FORMATS}
-    )
-    target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
-    target_include_directories(LiftApp PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/panel)
-    target_compile_definitions(LiftApp PUBLIC
-        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
-    target_link_libraries(LiftApp PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
-
-    # Headless check: renders the panel screens to PNG and drives the panel
-    # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
-    juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
-    target_sources(lift_panel_check PRIVATE tests/panel_check.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
-    target_include_directories(lift_panel_check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/panel)
-    target_compile_definitions(lift_panel_check PRIVATE
-        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
-    target_link_libraries(lift_panel_check PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
-        PUBLIC juce::juce_recommended_config_flags)
-    add_test(NAME lift_panel_check COMMAND lift_panel_check)
+    include(${CMAKE_SOURCE_DIR}/cmake/LiftApp.cmake)
 endif()
 
 add_custom_target(lift_laws ALL

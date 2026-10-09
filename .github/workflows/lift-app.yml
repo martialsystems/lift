@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Martial Systems LLC. All rights reserved.
+name: LIFT app
+
+on:
+  push:
+    branches: [tape-engine-juce]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: macOS universal (Standalone, VST3, AU)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -DLIFT_APP_ONLY=ON -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      - name: Build
+        run: cmake --build build --config Release -j 4 --target LiftApp_Standalone LiftApp_VST3 LiftApp_AU lift_panel_check
+      - name: Test
+        run: cd build && ctest --output-on-failure -C Release
+      - name: Check architectures
+        run: lipo -info build/LiftApp_artefacts/Release/Standalone/LIFT.app/Contents/MacOS/LIFT
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp -R build/LiftApp_artefacts/Release/Standalone/LIFT.app dist/
+          cp -R build/LiftApp_artefacts/Release/VST3/LIFT.vst3 dist/
+          cp -R build/LiftApp_artefacts/Release/AU/LIFT.component dist/
+          cp .github/README-mac.txt dist/README.txt
+          cd dist && ditto -c -k --sequesterRsrc --keepParent . ../LIFT-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LIFT-macOS
+          path: LIFT-macOS.zip
+
+  windows:
+    name: Windows x64 (Standalone, VST3)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DLIFT_APP_ONLY=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel --target LiftApp_Standalone LiftApp_VST3
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/LiftApp_artefacts/Release/Standalone/LIFT.exe dist/
+          Copy-Item -Recurse build/LiftApp_artefacts/Release/VST3/LIFT.vst3 dist/
+          Compress-Archive -Path dist/* -DestinationPath LIFT-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LIFT-Windows
+          path: LIFT-Windows.zip
