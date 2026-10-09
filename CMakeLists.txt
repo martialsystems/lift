@@ -151,6 +151,76 @@ if(APPLE)
     target_compile_options(lift_window PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 endif()
 
+# ---------------------------------------------------------------------------
+# JUCE app: the LIFT panel (native JUCE drawing) as Standalone and VST3 (AU on
+# macOS). These targets compile JUCE's GUI/audio modules themselves, so they
+# take the tape sources directly instead of linking lift_core/lift_juce (which
+# would compile JUCE twice).
+option(LIFT_BUILD_APP "Build the JUCE panel app and plugin" ON)
+if(LIFT_BUILD_APP)
+    set(LIFT_TAPE_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/tape/character.cpp
+        ${CMAKE_SOURCE_DIR}/src/tape/model.cpp
+        ${CMAKE_SOURCE_DIR}/src/tape/transport.cpp
+        ${CMAKE_SOURCE_DIR}/src/tape/edit.cpp
+        ${CMAKE_SOURCE_DIR}/src/tape/engine.cpp
+        ${CMAKE_SOURCE_DIR}/src/tape/engine_prepare.cpp
+        ${CMAKE_SOURCE_DIR}/src/audio/prepare.cpp
+        ${CMAKE_SOURCE_DIR}/src/audio/process_block.cpp
+    )
+    set(LIFT_PANEL_SOURCES
+        ${CMAKE_SOURCE_DIR}/panel/Fonts.cpp
+        ${CMAKE_SOURCE_DIR}/panel/LiftPanel.cpp
+        ${CMAKE_SOURCE_DIR}/panel/LiftPanelPaint.cpp
+        ${CMAKE_SOURCE_DIR}/panel/LiftProcessor.cpp
+    )
+    juce_add_binary_data(lift_fonts
+        HEADER_NAME LiftFontData.h
+        NAMESPACE LiftFontData
+        SOURCES
+            assets/fonts/Jost-Regular.ttf
+            assets/fonts/Jost-Medium.ttf
+            assets/fonts/Jost-SemiBold.ttf
+            assets/fonts/Jost-Bold.ttf
+            assets/fonts/SpaceMono-Regular.ttf
+            assets/fonts/SpaceMono-Bold.ttf
+    )
+    set_target_properties(lift_fonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    set(LIFT_APP_FORMATS Standalone VST3)
+    if(APPLE)
+        list(APPEND LIFT_APP_FORMATS AU)
+    endif()
+    juce_add_plugin(LiftApp
+        VERSION 0.1.0
+        COMPANY_NAME "Martial Systems"
+        PRODUCT_NAME "LIFT"
+        PLUGIN_MANUFACTURER_CODE Mrtl
+        PLUGIN_CODE Lft1
+        IS_SYNTH TRUE
+        NEEDS_MIDI_INPUT TRUE
+        COPY_PLUGIN_AFTER_BUILD FALSE
+        FORMATS ${LIFT_APP_FORMATS}
+    )
+    target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
+    target_include_directories(LiftApp PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/panel)
+    target_compile_definitions(LiftApp PUBLIC
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_link_libraries(LiftApp PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Headless check: renders the panel screens to PNG and drives the panel
+    # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
+    juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
+    target_sources(lift_panel_check PRIVATE tests/panel_check.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
+    target_include_directories(lift_panel_check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/panel)
+    target_compile_definitions(lift_panel_check PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
+    target_link_libraries(lift_panel_check PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags)
+    add_test(NAME lift_panel_check COMMAND lift_panel_check)
+endif()
+
 add_custom_target(lift_laws ALL
     COMMAND ${CMAKE_COMMAND} -E env LIFT_NO_REBUILD=1 python3 ${CMAKE_SOURCE_DIR}/tests/test_fences.py
     DEPENDS lift_tests lift_vst3_core lift_radio lift_core lift_standalone_core
