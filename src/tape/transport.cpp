@@ -18,6 +18,8 @@ double wrap_loop(double pos, int loopStart, int loopEnd) noexcept {
     return static_cast<double>(loopStart) + rel;
 }
 
+// Four point Hermite read. Linear reads at varispeed leave kinks at every
+// sample, which is audible as grit on pitched-down material.
 float lerp_clamp(const float* buf, int frames, double pos) noexcept {
     if (frames <= 0) {
         return 0.f;
@@ -30,10 +32,18 @@ float lerp_clamp(const float* buf, int frames, double pos) noexcept {
         pos = last;
     }
     const int i = static_cast<int>(pos);
-    const float f = static_cast<float>(pos - static_cast<double>(i));
-    const float a = buf[i];
-    const float b = buf[i + 1 < frames ? i + 1 : i];
-    return a * (1.f - f) + b * f;
+    const float t = static_cast<float>(pos - static_cast<double>(i));
+    const float x0 = buf[i];
+    if (t == 0.f) {
+        return x0;
+    }
+    const float xm1 = buf[i > 0 ? i - 1 : 0];
+    const float x1 = buf[i + 1 < frames ? i + 1 : i];
+    const float x2 = buf[i + 2 < frames ? i + 2 : (i + 1 < frames ? i + 1 : i)];
+    const float c1 = 0.5f * (x1 - xm1);
+    const float c2 = xm1 - 2.5f * x0 + 2.f * x1 - 0.5f * x2;
+    const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+    return ((c3 * t + c2) * t + c1) * t + x0;
 }
 
 }  // namespace
@@ -66,6 +76,13 @@ void transport_init(TapeRuntime& rt) noexcept {
     rt.clip[0] = nullptr;
     rt.clip[1] = nullptr;
     rt.clipFrames = 0;
+    rt.overdub = false;
+    rt.recWas = false;
+    rt.recCount = 0;
+    for (int i = 0; i < kRecIdxRing; ++i) {
+        rt.recIdx[i] = 0;
+    }
+    tape_engine_init(rt.engine);
     transport_bind_character(rt, 0);
     transport_reset_filters(rt);
 }
@@ -76,6 +93,7 @@ void transport_bind_character(TapeRuntime& rt, int index) noexcept {
     }
     rt.character = index;
     fill_coeffs(character_row(index), rt.coeff);
+    tape_engine_set_character(rt.engine, character_row(index));
 }
 
 void transport_set_varispeed(TapeRuntime& rt, float speed) noexcept {
@@ -96,6 +114,7 @@ void transport_stop(TapeRuntime& rt) noexcept {
     rt.playing = false;
     rt.recording = false;
     rt.reverse = false;
+    tape_engine_start(rt.engine, 0.f);
 }
 
 void transport_scrub(TapeRuntime& rt, double delta) noexcept {
@@ -123,6 +142,38 @@ void transport_reset_filters(TapeRuntime& rt) noexcept {
         reset_filter(rt.play[t][1]);
     }
     rt.flutter = 0.f;
+    tape_engine_reset(rt.engine);
+    rt.engine.speedNow = rt.varispeed;
+}
+
+void transport_tape_stop(TapeRuntime& rt, float seconds) noexcept {
+    if (rt.recording || !rt.playing) {
+        transport_stop(rt);
+        return;
+    }
+    tape_engine_stop(rt.engine, seconds);
+}
+
+void transport_tape_start(TapeRuntime& rt, float seconds) noexcept {
+    if (!rt.playing) {
+        rt.engine.ramp = 0.f;
+    }
+    rt.playing = true;
+    tape_engine_start(rt.engine, seconds);
+}
+
+double transport_next_pos(const TapeRuntime& rt, double pos, double rate) noexcept {
+    pos += rate;
+    if (rt.loopEnd > rt.loopStart) {
+        return wrap_loop(pos, rt.loopStart, rt.loopEnd);
+    }
+    if (pos < 0.0) {
+        pos = 0.0;
+    }
+    if (rt.frames > 0 && pos >= static_cast<double>(rt.frames)) {
+        pos = static_cast<double>(rt.frames);
+    }
+    return pos;
 }
 
 void transport_advance(TapeRuntime& rt, double rate) noexcept {

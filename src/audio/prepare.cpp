@@ -17,6 +17,7 @@ void prepare_tracks(TapeRuntime& rt, int frames) {
     rt.clip[0] = new float[static_cast<size_t>(frames)]();
     rt.clip[1] = new float[static_cast<size_t>(frames)]();
     rt.clipFrames = 0;
+    tape_engine_prepare(rt.engine, static_cast<double>(kSampleRate));
 }
 
 void release_tracks(TapeRuntime& rt) {
@@ -32,4 +33,5 @@ void release_tracks(TapeRuntime& rt) {
     rt.clip[1] = nullptr;
     rt.clipFrames = 0;
     rt.frames = 0;
+    tape_engine_release(rt.engine);
 }

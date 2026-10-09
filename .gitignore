@@ -2,3 +2,4 @@ build/
 .DS_Store
 *.wav
 !presets/**/*.wav
+__pycache__/

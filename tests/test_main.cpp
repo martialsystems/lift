@@ -323,9 +323,11 @@ void test_metronome() {
     release_tracks(rt);
 }
 
+// Skips the first samples: the playback chain (wow and flutter delay) starts
+// from silence, and that fill-in is not the loop boundary under test.
 float max_step(const std::vector<float>& x) {
     float step = 0.f;
-    for (size_t i = 1; i < x.size(); ++i) {
+    for (size_t i = 64; i < x.size(); ++i) {
         step = std::max(step, std::fabs(x[i] - x[i - 1]));
     }
     return step;

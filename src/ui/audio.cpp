@@ -78,6 +78,7 @@ void apply(const PanelCmd& cmd) {
         break;
     case PanelAct::Print:
         rt.recording = cmd.flag != 0;
+        rt.overdub = cmd.flag == 2;
         if (cmd.flag != 0) {
             rt.playing = true;
         }

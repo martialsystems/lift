@@ -28,6 +28,12 @@
 
 namespace {
 
+#ifdef MSG_NOSIGNAL
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+
 constexpr uint32_t kRingFrames = 1u << 18;
 constexpr uint32_t kRingMask = kRingFrames - 1u;
 
@@ -112,7 +118,7 @@ void stop_worker() {
 bool write_all(int fd, const char* data, int n) {
     int off = 0;
     while (off < n) {
-        const ssize_t wrote = ::send(fd, data + off, static_cast<size_t>(n - off), 0);
+        const ssize_t wrote = ::send(fd, data + off, static_cast<size_t>(n - off), kSendFlags);
         if (wrote < 0) {
             if (errno == EINTR) {
                 continue;
@@ -206,7 +212,9 @@ int dial(const std::string& host, int port) {
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         const int one = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+#ifdef SO_NOSIGPIPE
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
         break;
     }
     freeaddrinfo(result);

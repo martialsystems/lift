@@ -10,7 +10,55 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
+if(APPLE)
+    enable_language(OBJC OBJCXX)
+endif()
+
 find_package(Threads REQUIRED)
+
+# JUCE (DSP modules only). Pinned to a JUCE 8 tag. Used under the JUCE 8
+# licence; keep the plan's revenue tier note in mind before shipping.
+include(FetchContent)
+set(FETCHCONTENT_QUIET ON)
+FetchContent_Declare(juce
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 8.0.9
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(juce)
+
+# JUCE module sources compile once here, without the project's -Werror.
+add_library(lift_juce STATIC)
+target_link_libraries(lift_juce PRIVATE juce::juce_audio_basics juce::juce_dsp)
+target_include_directories(lift_juce SYSTEM PUBLIC ${juce_SOURCE_DIR}/modules)
+target_compile_definitions(lift_juce PUBLIC
+    JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    JUCE_STANDALONE_APPLICATION=0
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+    JUCE_MODULE_AVAILABLE_juce_core=1
+    JUCE_MODULE_AVAILABLE_juce_audio_basics=1
+    JUCE_MODULE_AVAILABLE_juce_audio_formats=1
+    JUCE_MODULE_AVAILABLE_juce_dsp=1
+)
+set_target_properties(lift_juce PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+if(MSVC)
+    set(LIFT_DSP_WARN /W4 /WX)
+else()
+    set(LIFT_DSP_WARN -Wall -Wextra -Werror)
+endif()
+
+# Tape emulation core. Platform free (Linux, Windows, macOS): no UI, no device
+# code, no codec. The app, the panel and a future plugin wrapper link this.
+add_library(lift_tape_dsp STATIC
+    src/tape/character.cpp
+    src/tape/engine.cpp
+    src/tape/engine_prepare.cpp
+)
+target_include_directories(lift_tape_dsp PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(lift_tape_dsp PUBLIC lift_juce)
+target_compile_options(lift_tape_dsp PRIVATE ${LIFT_DSP_WARN})
 find_path(OPUS_INCLUDE_DIR opus/opus.h HINTS /opt/homebrew/include /usr/local/include)
 find_library(OPUS_LIBRARY opus HINTS /opt/homebrew/lib /usr/local/lib)
 if(NOT OPUS_INCLUDE_DIR OR NOT OPUS_LIBRARY)
@@ -29,7 +77,6 @@ target_compile_options(lift_vorbis PRIVATE -w)
 add_library(lift_core STATIC
     src/names/catalog.cpp
     src/project/project.cpp
-    src/tape/character.cpp
     src/tape/model.cpp
     src/tape/transport.cpp
     src/tape/edit.cpp
@@ -40,7 +87,7 @@ add_library(lift_core STATIC
 )
 target_include_directories(lift_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(lift_core PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
-target_link_libraries(lift_core PUBLIC lift_vendor)
+target_link_libraries(lift_core PUBLIC lift_vendor lift_tape_dsp)
 target_compile_options(lift_core PRIVATE -Wall -Wextra -Werror)
 
 add_library(lift_radio STATIC
@@ -72,6 +119,14 @@ add_executable(lift_tests tests/test_main.cpp tests/test_pool.cpp tests/test_win
 target_compile_options(lift_tests PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(lift_tests PRIVATE LIFT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Offline renders through the tape engine with checks in code. Writes WAVs.
+add_executable(lift_tape_check tests/tape_check.cpp)
+target_link_libraries(lift_tape_check PRIVATE lift_core)
+target_compile_options(lift_tape_check PRIVATE ${LIFT_DSP_WARN})
+enable_testing()
+add_test(NAME lift_tape_check COMMAND lift_tape_check)
+add_test(NAME lift_tests COMMAND lift_tests)
+
 add_library(lift_panel STATIC
     src/ui/audio.cpp
     src/ui/draw.cpp
@@ -84,7 +139,6 @@ target_compile_options(lift_panel PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(lift_tests PRIVATE lift_radio lift_panel)
 
 if(APPLE)
-    enable_language(OBJCXX)
     add_executable(lift_window src/app/window_mac.mm)
     target_include_directories(lift_window PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(lift_window PRIVATE lift_panel)
