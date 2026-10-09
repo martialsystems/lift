@@ -43,7 +43,7 @@ def copyright_gaps() -> list[str]:
     gaps: list[str] = []
     paths = [ROOT / "CMakeLists.txt", ROOT / "product_laws.py"]
     for folder in ("src", "tests", "tools", "lift_laws"):
-        paths.extend(path for path in (ROOT / folder).rglob("*") if path.suffix in {".py", ".h", ".cpp"})
+        paths.extend(path for path in (ROOT / folder).rglob("*") if path.suffix in {".py", ".h", ".cpp", ".mm"})
     for path in paths:
         first = path.read_text(encoding="utf-8").splitlines()[0]
         if COPYRIGHT not in first:

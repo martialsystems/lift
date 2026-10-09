@@ -6,6 +6,9 @@ project(LIFT LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_OBJCXX_STANDARD 20)
+set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
 find_path(OPUS_INCLUDE_DIR opus/opus.h HINTS /opt/homebrew/include /usr/local/include)
@@ -50,7 +53,8 @@ target_link_libraries(lift_radio PUBLIC lift_core lift_vorbis ${OPUS_LIBRARY} Th
 target_compile_options(lift_radio PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(lift_radio PUBLIC LIFT_RADIO=1)
 
-# Standalone links the radio client. The window target comes with JUCE.
+# Standalone links the radio client. The panel window is AppKit.
+# The tape runtime stays the class a later wrapper can call.
 add_library(lift_standalone_core STATIC src/app/standalone_entry.cpp)
 target_include_directories(lift_standalone_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(lift_standalone_core PUBLIC lift_core lift_radio)
@@ -64,10 +68,34 @@ target_link_libraries(lift_vst3_core PUBLIC lift_core)
 target_compile_options(lift_vst3_core PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(lift_vst3_core PUBLIC LIFT_TARGET_VST3=1 LIFT_RADIO=0)
 
-add_executable(lift_tests tests/test_main.cpp tests/test_pool.cpp)
-target_link_libraries(lift_tests PRIVATE lift_radio)
+add_executable(lift_tests tests/test_main.cpp tests/test_pool.cpp tests/test_window.cpp)
 target_compile_options(lift_tests PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(lift_tests PRIVATE LIFT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+add_library(lift_panel STATIC
+    src/ui/audio.cpp
+    src/ui/draw.cpp
+    src/ui/panel.cpp
+)
+target_include_directories(lift_panel PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(lift_panel PUBLIC lift_core)
+target_compile_options(lift_panel PRIVATE -Wall -Wextra -Werror)
+
+target_link_libraries(lift_tests PRIVATE lift_radio lift_panel)
+
+if(APPLE)
+    enable_language(OBJCXX)
+    add_executable(lift_window src/app/window_mac.mm)
+    target_include_directories(lift_window PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(lift_window PRIVATE lift_panel)
+    target_link_libraries(lift_window PRIVATE
+        "-framework Cocoa"
+        "-framework AudioToolbox"
+        "-framework CoreAudio"
+        "-framework AudioUnit"
+    )
+    target_compile_options(lift_window PRIVATE -fobjc-arc -Wall -Wextra -Werror)
+endif()
 
 add_custom_target(lift_laws ALL
     COMMAND ${CMAKE_COMMAND} -E env LIFT_NO_REBUILD=1 python3 ${CMAKE_SOURCE_DIR}/tests/test_fences.py

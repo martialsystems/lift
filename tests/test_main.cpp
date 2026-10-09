@@ -483,7 +483,7 @@ void test_copyright() {
                 continue;
             }
             const auto ext = entry.path().extension();
-            if (ext != ".h" && ext != ".cpp") {
+            if (ext != ".h" && ext != ".cpp" && ext != ".mm") {
                 continue;
             }
             std::ifstream in(entry.path());
@@ -520,6 +520,7 @@ const NamedTest kTests[] = {
 }  // namespace
 
 int run_pool_suite(const char* only);
+int run_window_suite(const char* only);
 
 int main(int argc, char** argv) {
     const char* only = nullptr;
@@ -533,6 +534,7 @@ int main(int argc, char** argv) {
         test.fn();
     }
     g_fails += run_pool_suite(only);
+    g_fails += run_window_suite(only);
     if (g_fails != 0) {
         std::cerr << g_fails << " failed\n";
         return 1;

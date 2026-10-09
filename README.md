@@ -128,9 +128,22 @@ The internal rate is 48 kHz. A device at another rate is resampled at the edge.
 
 No account. Files stay in the project folder.
 
+## Window
+
+`lift_window` is the macOS panel. It shows the four tape tracks, the playhead, and the sample pool on the keys. Tape is the lit mode. Arm a track, then Rec prints the input at 1×. Lift copies the armed track. Drop writes that copy at the playhead. The last key toggles overdub. Its label reads Over or Replace. Play eases the mark's ghost out and back once a second. Rec draws the mark in violet. The solid face stays level.
+
+```
+lift_window
+lift_window --project Project.lift
+lift_window --shot panel.ppm
+lift_window --shot-play panel.ppm
+```
+
+`--project` loads that folder's pool. Launch does not write a project.
+
 ## Status
 
-Published 2026-10-08. Updated 2026-10-08: the name catalog, the project loader, the Eco tape, the sample pool, and the radio client are in this repository. `lift_tests` measures the four-pass overdub, a pool import, a duplicate hash, a capture with the network pulled mid-read, and a project reload. The default build runs five fences and fails if one refuses: project version, audio thread, shipped names, radio client, and the VST3 build. The window and the synth voices are not built yet.
+Published 2026-10-08. Updated 2026-10-09: the window arms a track, prints, lifts, drops, and shows a pool file on a key. Play eases the mark's ghost out and back once a second. Rec draws the mark in violet. `lift_tests` measures that panel, the four-pass overdub, a pool import, a duplicate hash, a capture with the network pulled mid-read, and a project reload. The default build runs five fences and fails if one refuses: project version, audio thread, shipped names, radio client, and the VST3 build. The synth voices are not built yet. The radio directory ships empty.
 
 ## Legal
 

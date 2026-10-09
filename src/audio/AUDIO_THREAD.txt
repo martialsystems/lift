@@ -5,3 +5,4 @@ src/tape/model.h
 src/tape/transport.cpp
 src/tape/transport.h
 src/tape/character.h
+src/ui/audio.cpp
