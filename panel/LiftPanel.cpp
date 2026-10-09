@@ -47,6 +47,15 @@ LiftPanel::LiftPanel(LiftProcessor& p) : proc_(p) {
     buildGrain();
     publishPatch();
     syncEngine();
+    an_.hitT.fill(-10.0);
+    an_.sliceT.fill(-10.0);
+    an_.peakT.fill(-10.0);
+    an_.muteT.fill(-10.0);
+    for (int t = 0; t < 4; ++t) {
+        an_.lastMute[static_cast<size_t>(t)] = mutes_[static_cast<size_t>(t)];
+    }
+    an_.lastCords = cords_.size();
+    advance(0.0);
     lastTick_ = juce::Time::getMillisecondCounterHiRes();
     startTimerHz(60);
 }
@@ -63,7 +72,8 @@ void LiftPanel::say(const juce::String& t) {
 
 void LiftPanel::flash(const juce::String& t) {
     msg_ = t;
-    msgUntil_ = juce::Time::getMillisecondCounterHiRes() + 1600.0;
+    an_.msgT = t_;
+    msgUntil_ = t_ + 1.6;
 }
 
 float LiftPanel::speedOf() const {
@@ -301,10 +311,12 @@ void LiftPanel::act(const juce::String& a) {
         say("Track " + juce::String(n + 1) + (mutes_[static_cast<size_t>(n)] ? " muted." : " unmuted."));
     } else if (k == "lift") {
         proc_.send(Cmd::Lift);
+        an_.liftT = t_;
         flash(loop_ ? "LIFTED " + juce::String::fromUTF8("\xc2\xb7") + " LOOP ON T" + juce::String(arm_ + 1)
                     : "LIFTED " + juce::String::fromUTF8("\xc2\xb7") + " ALL OF T" + juce::String(arm_ + 1));
     } else if (k == "drop") {
         proc_.send(Cmd::Drop);
+        an_.dropT = t_;
         flash(juce::String::fromUTF8("DROPPED \xc2\xb7 OVERDUB \xc2\xb7 5 MS FADES"));
     } else if (k == "loop") {
         loop_ = !loop_;
@@ -857,29 +869,9 @@ bool LiftPanel::keyStateChanged(bool isKeyDown) {
 
 void LiftPanel::timerCallback() {
     const double now = juce::Time::getMillisecondCounterHiRes();
-    const float dt = static_cast<float>(juce::jlimit(0.0, 0.1, (now - lastTick_) / 1000.0));
+    const double dt = juce::jlimit(0.0, 0.1, (now - lastTick_) / 1000.0);
     lastTick_ = now;
-    bool dirtyScreen = false;
-    // Reels: one turn per 2.4 s at 1x (the prototype's spin), driven by the
-    // real tape speed and direction from the audio thread.
-    const float reel = proc_.uiReelSpeed.load();
-    if (reel != 0.f) {
-        reelAngle_ += dt * reel * juce::MathConstants<float>::twoPi / 2.4f;
-        reelAngle_ = std::fmod(reelAngle_, juce::MathConstants<float>::twoPi);
-        dirtyScreen = true;
-    }
-    const double pos = proc_.uiPos.load();
-    if (pos != shownPos_) {
-        shownPos_ = pos;
-        dirtyScreen = true;
-    }
-    if (msg_.isNotEmpty() && now > msgUntil_) {
-        msg_.clear();
-        dirtyScreen = true;
-    }
-    if (dirtyScreen) {
-        repaint(juce::Rectangle<float>(kDevX + 58.f, kDevY + 254.f, 604.f, 410.f).getSmallestIntegerContainer());
-    }
+    advance(dt);
 }
 
 }  // namespace lift

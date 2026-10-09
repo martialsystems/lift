@@ -7,6 +7,7 @@
 
 #include "Fonts.h"
 #include "PanelData.h"
+#include "PaintUtil.h"
 
 #include <cmath>
 
@@ -22,170 +23,8 @@ using juce::Justification;
 using juce::Path;
 using juce::Rectangle;
 
-namespace {
+using namespace draw;
 
-constexpr float kPi = juce::MathConstants<float>::pi;
-
-struct Stop {
-    float p;
-    Colour c;
-};
-
-FillType radial(float cx, float cy, float rx, float ry, std::initializer_list<Stop> stops) {
-    ColourGradient gr;
-    gr.isRadial = true;
-    gr.point1 = {cx, cy};
-    gr.point2 = {cx + rx, cy};
-    for (const auto& s : stops) {
-        gr.addColour(juce::jlimit(0.0, 1.0, static_cast<double>(s.p)), s.c);
-    }
-    FillType ft(gr);
-    if (ry != rx) {
-        ft.transform = AffineTransform::scale(1.f, ry / rx, cx, cy);
-    }
-    return ft;
-}
-
-FillType linear(float x1, float y1, float x2, float y2, std::initializer_list<Stop> stops) {
-    ColourGradient gr;
-    gr.isRadial = false;
-    gr.point1 = {x1, y1};
-    gr.point2 = {x2, y2};
-    for (const auto& s : stops) {
-        gr.addColour(juce::jlimit(0.0, 1.0, static_cast<double>(s.p)), s.c);
-    }
-    return FillType(gr);
-}
-
-Colour W(float a) {
-    return Colour::fromFloatRGBA(1.f, 1.f, 1.f, a);
-}
-Colour B(float a) {
-    return Colour::fromFloatRGBA(0.f, 0.f, 0.f, a);
-}
-Colour rgba(int r, int g, int b, float a) {
-    return Colour(static_cast<juce::uint8>(r), static_cast<juce::uint8>(g), static_cast<juce::uint8>(b), a);
-}
-
-Path rrect(Rectangle<float> r, float rad) {
-    Path p;
-    p.addRoundedRectangle(r, rad);
-    return p;
-}
-
-Path circle(float cx, float cy, float r) {
-    Path p;
-    p.addEllipse(cx - r, cy - r, 2.f * r, 2.f * r);
-    return p;
-}
-
-// CSS box-shadow (outer). Blur is the CSS blur radius.
-void shadow(Graphics& g, const Path& p, Colour c, float dx, float dy, float blur) {
-    if (blur < 0.75f) {
-        g.setColour(c);
-        g.fillPath(p, AffineTransform::translation(dx, dy));
-        return;
-    }
-    Path q(p);
-    q.applyTransform(AffineTransform::translation(dx, dy));
-    juce::DropShadow(c, juce::jmax(1, juce::roundToInt(blur)), {}).drawForPath(g, q);
-}
-
-// CSS box-shadow inset.
-void inset(Graphics& g, const Path& shape, Colour c, float dx, float dy, float blur) {
-    Graphics::ScopedSaveState s(g);
-    g.reduceClipRegion(shape);
-    Path inv;
-    inv.addRectangle(shape.getBounds().expanded(blur * 2.f + std::abs(dx) + std::abs(dy) + 4.f));
-    Path moved(shape);
-    moved.applyTransform(AffineTransform::translation(dx, dy));
-    inv.addPath(moved);
-    inv.setUsingNonZeroWinding(false);
-    if (blur < 0.75f) {
-        g.setColour(c);
-        g.fillPath(inv);
-    } else {
-        juce::DropShadow(c, juce::roundToInt(blur), {}).drawForPath(g, inv);
-    }
-}
-
-void fill(Graphics& g, const Path& p, const FillType& f) {
-    g.setFillType(f);
-    g.fillPath(p);
-}
-
-void fill(Graphics& g, const Path& p, Colour c) {
-    g.setColour(c);
-    g.fillPath(p);
-}
-
-void text(Graphics& g, const juce::String& s, const juce::Font& f, Colour c, Rectangle<float> r, Justification j) {
-    g.setFont(f);
-    g.setColour(c);
-    g.drawText(s, r, j, false);
-}
-
-// SVG <text>: baseline at y; anchor -1 start, 0 middle, 1 end.
-void svgText(Graphics& g, const juce::String& s, float x, float y, float size, Colour c, int anchor = -1,
-             bool bold = false, float ls = 0.f) {
-    const juce::Font f = mono(bold, size, ls / size);
-    g.setFont(f);
-    g.setColour(c);
-    const float w = cssWidth(bold ? 700 : 400, true, size, ls / size, s);
-    float x0 = x;
-    if (anchor == 0) {
-        x0 = x - w * 0.5f;
-    } else if (anchor > 0) {
-        x0 = x - w;
-    }
-    juce::GlyphArrangement ga;
-    ga.addLineOfText(f, s, x0, y);
-    ga.draw(g);
-}
-
-void line(Graphics& g, float x1, float y1, float x2, float y2, Colour c, float w) {
-    g.setColour(c);
-    g.drawLine(x1, y1, x2, y2, w);
-}
-
-Colour grayed(Colour c) {
-    // CSS filter: grayscale(1) brightness(.8)
-    const float l = 0.2126f * c.getFloatRed() + 0.7152f * c.getFloatGreen() + 0.0722f * c.getFloatBlue();
-    const float v = juce::jlimit(0.f, 1.f, l * 0.8f);
-    return Colour::fromFloatRGBA(v, v, v, c.getFloatAlpha());
-}
-
-// conic-gradient(from 15deg, ...) chrome nut, cached per scale
-const juce::Image& nutImage() {
-    static juce::Image img = [] {
-        const int S = 96;  // 22 px nut at ~4.4x
-        juce::Image im(juce::Image::ARGB, S, S, true);
-        Graphics g(im);
-        const juce::uint32 st[9] = {0xf5f5f3, 0x8d8d8a, 0xe9e9e6, 0x6c6c69, 0xfbfbf9,
-                                    0x9d9d99, 0xdcdcd8, 0x777774, 0xf5f5f3};
-        const float c = S * 0.5f;
-        const int N = 180;
-        for (int k = 0; k < N; ++k) {
-            const float a0 = static_cast<float>(k) / N * 2.f * kPi;
-            const float a1 = static_cast<float>(k + 1) / N * 2.f * kPi + 0.01f;
-            const float deg = (static_cast<float>(k) + 0.5f) / N * 360.f;
-            float t = std::fmod(deg - 15.f + 360.f, 360.f) / 45.f;
-            const int i0 = juce::jmin(7, static_cast<int>(t));
-            const float f = t - static_cast<float>(i0);
-            const Colour col = hex(st[i0]).interpolatedWith(hex(st[i0 + 1]), f);
-            Path w;
-            w.startNewSubPath(c, c);
-            w.addCentredArc(c, c, c, c, 0.f, a0, a1, false);
-            w.closeSubPath();
-            g.setColour(col);
-            g.fillPath(w);
-        }
-        return im;
-    }();
-    return img;
-}
-
-}  // namespace
 
 // ------------------------------------------------------------------ grain
 
@@ -214,6 +53,43 @@ void LiftPanel::buildGrain() {
 // ------------------------------------------------------------------ paint
 
 void LiftPanel::paint(Graphics& g) {
+    // Animation frames repaint only the screen: draw just the screen and the
+    // cables that cross it.
+    // (A scaled window rounds the repaint rect outward, so allow a small rim;
+    // it still lies inside the opaque screen surround.)
+    const auto area = screenArea().expanded(6);
+    if (area.contains(g.getClipBounds())) {
+        {
+            Graphics::ScopedSaveState s(g);
+            g.addTransform(AffineTransform::translation(kDevX, kDevY));
+            paintScreen(g);
+            if (drag_.active) {
+                paintCables(g);
+                return;
+            }
+        }
+        // The cables over the screen only change when the patch does: cache them.
+        const float sc = juce::jmax(0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        juce::int64 key = static_cast<juce::int64>(cords_.size());
+        for (const Cord& c : cords_) {
+            key = key * 1000003 + ((c.o * 16 + c.i) * 8 + c.c) * 2 + (c.st ? 1 : 0);
+        }
+        if (cableImg_.isNull() || cableKey_ != key || cableScale_ != sc) {
+            cableKey_ = key;
+            cableScale_ = sc;
+            cableImg_ = juce::Image(juce::Image::ARGB, juce::roundToInt(area.getWidth() * sc),
+                                    juce::roundToInt(area.getHeight() * sc), true);
+            Graphics ig(cableImg_);
+            ig.addTransform(AffineTransform::translation(kDevX - static_cast<float>(area.getX()),
+                                                         kDevY - static_cast<float>(area.getY()))
+                                .scaled(sc));
+            paintCables(ig);
+        }
+        g.setImageResamplingQuality(Graphics::lowResamplingQuality);
+        g.drawImageTransformed(cableImg_, AffineTransform::scale(1.f / sc).translated(static_cast<float>(area.getX()),
+                                                                                       static_cast<float>(area.getY())));
+        return;
+    }
     g.fillAll(hex(0xc2bdb3));
     paintTopBar(g);
     {
@@ -403,389 +279,6 @@ void LiftPanel::paintBrand(Graphics& g) {
     const juce::String key = juce::String::fromUTF8("PITCH \xc2\xb7 GATE \xc2\xb7 MOD \xc2\xb7 AUDIO \xc2\xb7 CLOCK");
     const float kw = cssWidth(600, false, 11.f, 0.2f, key);
     text(g, key, small, ink, {1316.f - kw, cy - 8.f, kw + 10.f, 16.f}, Justification::centredLeft);
-}
-
-void LiftPanel::paintScreen(Graphics& g) {
-    const Path wrap = rrect({44.f, 240.f, 632.f, 438.f}, 10.f);
-    fill(g, wrap, hex(0xd9cdb1));
-    inset(g, wrap, rgba(60, 50, 30, 0.28f), 0.f, 2.f, 4.f);
-    inset(g, wrap, W(0.7f), 0.f, -1.f, 0.f);
-
-    const Rectangle<float> S(60.f, 256.f, 600.f, 406.f);
-    const Path scr = rrect(S, 4.f);
-    fill(g, rrect(S.expanded(2.f), 6.f), hex(0x121212));
-    fill(g, scr, hex(0x0b0b0b));
-    {
-        const float dx = std::sin(122.f * kPi / 180.f), dy = -std::cos(122.f * kPi / 180.f);
-        const float len = 600.f * std::abs(dx) + 406.f * std::abs(dy);
-        const float cx = S.getCentreX(), cy = S.getCentreY();
-        fill(g, scr,
-             linear(cx - dx * len * 0.5f, cy - dy * len * 0.5f, cx + dx * len * 0.5f, cy + dy * len * 0.5f,
-                    {{0.f, W(0.075f)}, {0.34f, W(0.02f)}, {0.345f, W(0.f)}, {1.f, W(0.f)}}));
-    }
-    inset(g, scr, B(0.85f), 0.f, 0.f, 50.f);
-    inset(g, scr, B(0.9f), 0.f, 2.f, 6.f);
-
-    Graphics::ScopedSaveState s(g);
-    g.reduceClipRegion(scr);
-    g.addTransform(AffineTransform::translation(S.getX(), S.getY()));
-    paintStatus(g);
-    paintView(g);
-    paintFoot(g);
-}
-
-void LiftPanel::paintStatus(Graphics& g) {
-    const juce::Font reg = mono(false, 11.f, 0.06f);
-    const juce::Font bold = mono(true, 11.f, 0.06f);
-    const Rectangle<float> row(0.f, 0.f, 600.f, 32.f);
-    static const char* labelsM[5] = {"SYNTH", "DRUM", "TAPE", "MIX", "IN"};
-    const juce::String label = bay_ ? "BAY" : labelsM[mode_];
-    juce::String sub;
-    if (bay_) {
-        sub = "PATCH";
-    } else if (mode_ == Synth) {
-        sub = ENGINES[sel_[Synth]].n;
-    } else if (mode_ == Drum) {
-        sub = KITS[sel_[Drum]];
-    } else if (mode_ == Tape) {
-        sub = "DECK";
-    } else if (mode_ == Mix) {
-        sub = "T" + juce::String(arm_ + 1);
-    } else {
-        sub = INPUTS[sel_[In]];
-    }
-    float x = 16.f;
-    text(g, label, bold, bay_ ? hex(0x4c82e6) : hex(0xf4be2a), row.withX(x), Justification::centredLeft);
-    x += cssWidth(700, true, 11.f, 0.06f, label) + 10.f;
-    text(g, sub, reg, hex(0x8c877b), row.withX(x), Justification::centredLeft);
-
-    juce::String noteText;
-    if (note_ >= 0) {
-        noteText = juce::String(NAMES[note_ % 12]) + juce::String(3 + oct_ + note_ / 12);
-    }
-    juce::String pickText;
-    if (pick_.valid()) {
-        pickText = pick_.r == 'o' ? juce::String(OUTS[pick_.i].n) + juce::String::fromUTF8(" \xe2\x86\x92 PICK AN IN")
-                                  : juce::String::fromUTF8("PICK AN OUT \xe2\x86\x92 ") + INS[pick_.i].n;
-    }
-    juce::String centre = pickText.isNotEmpty() ? pickText
-                          : msg_.isNotEmpty()   ? msg_
-                          : noteText.isNotEmpty() ? "NOTE " + noteText
-                                                  : counterText();
-    const Colour cc = (pick_.valid() || msg_.isNotEmpty()) ? hex(0xf4be2a)
-                      : (rec_ && playing_)                ? hex(0xe8473a)
-                                                          : hex(0xede6d6);
-    const float cw = cssWidth(400, true, 11.f, 0.06f, centre);
-    text(g, centre, reg, cc, {300.f - cw * 0.5f, 0.f, cw + 10.f, 32.f}, Justification::centredLeft);
-
-    struct Item {
-        juce::String s;
-        Colour c;
-    };
-    std::vector<Item> items = {{"120", hex(0x8c877b)},
-                               {juce::String(speedOf(), 2) + juce::String::fromUTF8("\xc3\x97"), hex(0xede6d6)},
-                               {"T" + juce::String(arm_ + 1), hex(SCR[arm_])}};
-    if (rev_) {
-        items.push_back({"REV", hex(0xf4be2a)});
-    }
-    if (shift_) {
-        items.push_back({"SHIFT", hex(0xede6d6)});
-    }
-    float rx = 584.f;
-    for (auto it = items.rbegin(); it != items.rend(); ++it) {
-        const float w = cssWidth(400, true, 11.f, 0.06f, it->s);
-        text(g, it->s, reg, it->c, {rx - w, 0.f, w + 10.f, 32.f}, Justification::centredLeft);
-        rx -= w + 12.f;
-    }
-}
-
-void LiftPanel::paintView(Graphics& g) {
-    Graphics::ScopedSaveState s(g);
-    g.reduceClipRegion(Rectangle<int>(0, 32, 600, 324));
-    const float sc = 600.f / 720.f;
-    g.addTransform(AffineTransform::scale(sc).translated(0.f, 32.f + (324.f - 319.f * sc) * 0.5f));
-    if (bay_) {
-        paintViewBay(g);
-    } else if (mode_ == Tape) {
-        paintViewTape(g);
-    } else if (mode_ == Synth) {
-        paintViewSynth(g);
-    } else if (mode_ == Drum) {
-        paintViewDrum(g);
-    } else if (mode_ == Mix) {
-        paintViewMix(g);
-    } else {
-        paintViewIn(g);
-    }
-}
-
-void LiftPanel::paintViewTape(Graphics& g) {
-    const Colour cr = hex(0xede6d6);
-    Path p;
-    p.startNewSubPath(200.f, 218.f);
-    p.lineTo(300.f, 262.f);
-    p.lineTo(420.f, 262.f);
-    p.lineTo(520.f, 218.f);
-    g.setColour(cr);
-    g.strokePath(p, juce::PathStrokeType(6.f, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
-    fill(g, circle(300.f, 262.f, 13.f), cr);
-    fill(g, circle(420.f, 262.f, 13.f), cr);
-    g.setColour(rec_ ? hex(0xe8473a) : cr);
-    g.fillRect(348.f, 246.f, 24.f, 24.f);
-    Path tri;
-    tri.addTriangle(360.f, 214.f, 374.f, 236.f, 346.f, 236.f);
-    fill(g, tri, hex(0xf4be2a));
-    auto reel = [&](float x, float pack) {
-        fill(g, circle(x, 130.f, pack), hex(0x2a2925));
-        const AffineTransform rot = AffineTransform::rotation(reelAngle_).translated(x, 130.f);
-        g.setColour(cr);
-        Path ring;
-        ring.addEllipse(-80.f, -80.f, 160.f, 160.f);
-        g.strokePath(ring, juce::PathStrokeType(9.f), rot);
-        for (int k = 0; k < 3; ++k) {
-            Path sp;
-            sp.addRectangle(-6.f, -78.f, 12.f, 62.f);
-            g.fillPath(sp, AffineTransform::rotation(static_cast<float>(k) * 2.f * kPi / 3.f).followedBy(rot));
-        }
-        fill(g, circle(x, 130.f, 20.f), cr);
-        fill(g, circle(x, 130.f, 7.f), hex(0x0b0b0b));
-    };
-    reel(200.f, 66.f);
-    reel(520.f, 46.f);
-    svgText(g, "TAPE", 40.f, 300.f, 13.f, cr, -1, false, 1.f);
-    line(g, 200.f, 296.f, 620.f, 296.f, hex(0x3a3833), 3.f);
-    const int frames = proc_.uiFrames.load();
-    const float frac = frames > 0 ? juce::jlimit(0.f, 1.f, static_cast<float>(proc_.uiPos.load() / frames)) : 0.f;
-    if (frac > 0.f) {
-        line(g, 200.f, 296.f, 200.f + 420.f * frac, 296.f, cr, 3.f);
-    }
-    svgText(g, "0" + juce::String(sel_[Tape] + 1), 680.f, 300.f, 13.f, cr, 1);
-}
-
-void LiftPanel::paintViewSynth(Graphics& g) {
-    g.addTransform(AffineTransform::translation(0.f, 40.f));
-    const EngineDef& e = ENGINES[sel_[Synth]];
-    const auto& k = enc_[Synth];
-    svgText(g, e.n, 24.f, 38.f, 30.f, hex(0xede6d6), -1, true);
-    svgText(g, juce::String::fromUTF8(e.d), 24.f, 58.f, 10.f, hex(0x8c877b), -1, false, 1.f);
-    line(g, 24.f, 150.f, 696.f, 150.f, hex(0x262626), 1.f);
-    auto f = [&](double t) -> double {
-        const double tau = 2.0 * juce::MathConstants<double>::pi;
-        switch (sel_[Synth]) {
-        case 0: {
-            const double p = std::fmod(t * 3.0, 1.0);
-            const double p2 = std::fmod(t * 3.0 * 1.02 + 0.13, 1.0);
-            return 0.5 * (2.0 * p - 1.0) + 0.38 * (p2 < 0.5 ? 1.0 : -1.0);
-        }
-        case 1: {
-            const double p = std::fmod(t * 3.0, 1.0);
-            const double d = 0.08 + 0.4 * (1.0 - k[0]);
-            const double q = p < d ? p * 0.5 / d : 0.5 + (p - d) * 0.5 / (1.0 - d);
-            return std::cos(tau * q) * 0.9;
-        }
-        case 2: {
-            double x = (1.0 + 2.5 * k[0]) * std::sin(tau * 3.0 * t);
-            int n = 0;
-            while ((x > 1.0 || x < -1.0) && n < 12) {
-                x = x > 1.0 ? 2.0 - x : -2.0 - x;
-                ++n;
-            }
-            return x * 0.9;
-        }
-        case 3: return std::sin(tau * 3.0 * t + (0.5 + 3.0 * k[2]) * std::sin(tau * 9.0 * t)) * 0.9;
-        case 4: {
-            double v = 0.0;
-            for (int j = 1; j < 8; ++j) {
-                v += std::sin(tau * j * 7.0 * t) / j;
-            }
-            return v * 0.62 * std::exp(-3.0 * t);
-        }
-        case 5: {
-            double v = 0.0;
-            for (int j = 0; j < 5; ++j) {
-                v += std::sin(tau * t * 8.0 * (1.0 + j * 0.035));
-            }
-            return v / 5.0;
-        }
-        case 6: return std::exp(-4.0 * std::fmod(t * 3.0, 1.0)) * std::sin(t * 620.0) * std::sin(t * 91.3 + 1.0);
-        default: return 0.0;
-        }
-    };
-    Path w;
-    for (int i = 0; i <= 260; ++i) {
-        const double t = i / 260.0;
-        const float x = static_cast<float>(24.0 + t * 672.0);
-        const float y = static_cast<float>(150.0 - juce::jlimit(-1.0, 1.0, f(t)) * 70.0);
-        if (i == 0) {
-            w.startNewSubPath(x, y);
-        } else {
-            w.lineTo(x, y);
-        }
-    }
-    g.setColour(hex(0xf4be2a));
-    g.strokePath(w, juce::PathStrokeType(3.f, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
-    for (int i = 0; i < 6; ++i) {
-        g.setColour(i < (note_ >= 0 ? 3 : 2) ? hex(0xf4be2a) : hex(0x262626));
-        g.fillRect(546.f + static_cast<float>(i) * 25.f, 26.f, 22.f, 12.f);
-    }
-}
-
-void LiftPanel::paintViewDrum(Graphics& g) {
-    g.addTransform(AffineTransform::translation(0.f, 40.f));
-    svgText(g, "KIT " + juce::String(sel_[Drum] + 1) + juce::String::fromUTF8(" \xc2\xb7 ") + (sel_[Drum] == 0 ? "TAP" : "EMPTY"),
-            24.f, 30.f, 18.f, hex(0xede6d6), -1, true);
-    for (int i = 0; i < 112; ++i) {
-        const double hv = (0.12 + 0.88 * std::exp(-(i % 7) / 2.1)) * (0.45 + 0.55 * std::abs(std::sin(i * 1.7))) * 62.0;
-        const float h = static_cast<float>(juce::jmax(2, static_cast<int>(std::floor(hv + 0.5))));
-        g.setColour(i % 7 == 0 ? hex(0xede6d6) : hex(0x4c82e6));
-        g.fillRect(24.f + static_cast<float>(i) * 6.f, 77.f - h / 2.f, 3.f, h);
-    }
-    for (int i = 1; i < 24; ++i) {
-        line(g, 24.f + i * 28.f, 42.f, 24.f + i * 28.f, 112.f, hex(0xf4be2a, 0.45f), 1.f);
-    }
-    const int pat[16] = {1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0};
-    const float vel[16] = {1, 0, 0, 0, 0.7f, 0, 0, 0.4f, 1, 0, 0, 0, 0.7f, 0, 0.5f, 0};
-    for (int i = 0; i < 16; ++i) {
-        const float x = 24.f + i * 42.4f;
-        g.setColour(pat[i] ? rgba(232, 71, 58, 0.3f) : hex(0x141414));
-        g.fillRect(x, 142.f, 36.f, 36.f);
-        g.setColour(pat[i] ? hex(0xe8473a) : (i % 4 == 0 ? hex(0x444444) : hex(0x262626)));
-        g.drawRect(x - 0.5f, 141.5f, 37.f, 37.f, 1.f);
-        if (pat[i]) {
-            g.setColour(hex(0xe8473a));
-            g.fillRect(x, 184.f, 36.f, static_cast<float>(juce::jmax(2, juce::roundToInt(vel[i] * 12.f))));
-        }
-    }
-}
-
-void LiftPanel::paintViewMix(Graphics& g) {
-    g.addTransform(AffineTransform::translation(0.f, 52.f));
-    const float lvls[4] = {0.72f, 0.55f, 0.8f, 0.4f}, pans[4] = {0.5f, 0.3f, 0.62f, 0.8f};
-    const auto& k = enc_[Mix];
-    for (int t = 0; t < 4; ++t) {
-        const float x = 60.f + t * 110.f;
-        const float v = arm_ == t ? k[0] : lvls[t];
-        const float p = arm_ == t ? k[1] : pans[t];
-        const float cy = static_cast<float>(juce::roundToInt(176.f - v * 126.f));
-        svgText(g, "T" + juce::String(t + 1), x, 22.f, 12.f, hex(SCR[t]), 0, true);
-        line(g, x - 18.f, 34.f, x + 18.f, 34.f, hex(0x333333), 3.f);
-        fill(g, circle(x - 18.f + p * 36.f, 34.f, 4.f), hex(SCR[t]));
-        line(g, x, 50.f, x, 176.f, hex(0x333333), 4.f);
-        line(g, x, cy, x, 176.f, hex(SCR[t]), 4.f);
-        g.setColour(hex(0xede6d6));
-        g.fillRect(x - 18.f, cy - 5.f, 36.f, 10.f);
-        if (mutes_[static_cast<size_t>(t)]) {
-            g.setColour(hex(0xf4be2a));
-            g.fillRect(x - 12.f, 186.f, 24.f, 18.f);
-        }
-        g.setColour(hex(0x444444));
-        g.drawRect(x - 12.5f, 185.5f, 25.f, 19.f, 1.f);
-        svgText(g, "M", x, 199.f, 9.f, mutes_[static_cast<size_t>(t)] ? hex(0x0a0a0a) : hex(0x8c877b), 0);
-    }
-    svgText(g, "MST", 500.f, 22.f, 12.f, hex(0xede6d6), 0, true);
-    line(g, 500.f, 50.f, 500.f, 176.f, hex(0x333333), 4.f);
-    line(g, 500.f, 74.f, 500.f, 176.f, hex(0xede6d6), 4.f);
-    g.setColour(hex(0xede6d6));
-    g.fillRect(482.f, 69.f, 36.f, 10.f);
-    g.setColour(hex(0x262626));
-    g.drawRect(559.5f, 33.5f, 137.f, 111.f, 1.f);
-    Path eq;
-    eq.startNewSubPath(560.f, 90.f - (k[2] - 0.5f) * 40.f);
-    eq.cubicTo(584.f, 88.f - (k[2] - 0.5f) * 40.f, 596.f, 80.f, 610.f, 89.f);
-    eq.cubicTo(628.f, 100.f, 646.f, 98.f, 662.f, 86.f);
-    eq.cubicTo(674.f, 78.f, 686.f, 90.f - (k[3] - 0.5f) * 40.f, 696.f, 90.f - (k[3] - 0.5f) * 44.f);
-    g.setColour(hex(0xf4be2a));
-    g.strokePath(eq, juce::PathStrokeType(2.f));
-    svgText(g, juce::String::fromUTF8("LOW \xc2\xb7 MID \xc2\xb7 HIGH"), 628.f, 166.f, 9.f, hex(0x8c877b), 0, false, 1.f);
-}
-
-void LiftPanel::paintViewIn(Graphics& g) {
-    g.addTransform(AffineTransform::translation(0.f, 46.f));
-    const auto& k = enc_[In];
-    const int st = juce::jmin(4, static_cast<int>(std::floor(k[0] * 5.f)));
-    const juce::String name = sel_[In] == 2
-                                  ? juce::String::fromUTF8("RADIO \xc2\xb7 STATION ") + juce::String(st + 1).paddedLeft('0', 2)
-                                  : juce::String::fromUTF8("INPUT \xc2\xb7 ") + INPUTS[sel_[In]];
-    svgText(g, name, 24.f, 30.f, 18.f, hex(0xede6d6), -1, true);
-    g.setColour(hex(0x121212));
-    g.fillRect(24.f, 48.f, 672.f, 78.f);
-    g.setColour(hex(0x262626));
-    g.drawRect(23.5f, 47.5f, 673.f, 79.f, 1.f);
-    for (int i = 0; i <= 41; ++i) {
-        line(g, 40.f + i * 16.f, i % 5 == 0 ? 82.f : 92.f, 40.f + i * 16.f, 104.f, hex(0x4a4740), 1.f);
-    }
-    for (int i = 0; i < 5; ++i) {
-        svgText(g, "STATION " + juce::String(i + 1).paddedLeft('0', 2), 104.f + i * 128.f, 72.f, 10.f,
-                i == st ? hex(0xede6d6) : hex(0x5e5a50), 0);
-    }
-    const float nx = static_cast<float>(juce::roundToInt(40.f + k[0] * 640.f));
-    line(g, nx, 54.f, nx, 120.f, hex(0xe8473a), 3.f);
-    g.setColour(hex(0x1a1a1a));
-    g.fillRect(64.f, 146.f, 560.f, 12.f);
-    g.fillRect(64.f, 170.f, 560.f, 12.f);
-    g.setColour(hex(0x4c82e6));
-    g.fillRect(64.f, 146.f, static_cast<float>(juce::roundToInt(560.f * k[2] * 0.92f)), 12.f);
-    g.fillRect(64.f, 170.f, static_cast<float>(juce::roundToInt(560.f * k[2] * 0.84f)), 12.f);
-    const float tx = static_cast<float>(juce::roundToInt(64.f + k[3] * 560.f));
-    {
-        Path l;
-        l.startNewSubPath(tx, 140.f);
-        l.lineTo(tx, 188.f);
-        Path d;
-        const float dash[2] = {3.f, 2.f};
-        juce::PathStrokeType(2.f).createDashedStroke(d, l, dash, 2);
-        fill(g, d, hex(0xe8473a));
-    }
-    svgText(g, "L", 24.f, 156.f, 9.f, hex(0x8c877b));
-    svgText(g, "R", 24.f, 180.f, 9.f, hex(0x8c877b));
-}
-
-void LiftPanel::paintViewBay(Graphics& g) {
-    svgText(g, juce::String::fromUTF8("CORDS ") + juce::String(static_cast<int>(cords_.size())) +
-                   juce::String::fromUTF8(" \xc2\xb7 INPUTS SUM"),
-            24.f, 28.f, 11.f, hex(0x8c877b), -1, false, 1.f);
-    svgText(g, "32-SAMPLE BLOCK", 696.f, 28.f, 11.f, hex(0x8c877b), 1, false, 1.f);
-    const int n = juce::jmin(9, static_cast<int>(cords_.size()));
-    for (int k = 0; k < n; ++k) {
-        const Cord& c = cords_[static_cast<size_t>(k)];
-        const float y = 48.f + k * 28.f;
-        g.setColour(hex(CLOTH[c.c].c));
-        g.fillRect(24.f, y, 14.f, 14.f);
-        g.setColour(hex(0xede6d6, 0.3f));
-        g.drawRect(23.5f, y - 0.5f, 15.f, 15.f, 1.f);
-        svgText(g, juce::String::fromUTF8(OUTS[c.o].n), 52.f, y + 12.f, 14.f, hex(0xede6d6));
-        svgText(g, juce::String::fromUTF8("\xe2\x86\x92"), 290.f, y + 12.f, 14.f, hex(0x5e5a50));
-        svgText(g, juce::String::fromUTF8(INS[c.i].n), 330.f, y + 12.f, 14.f, hex(0xede6d6));
-        if (isFb(c.o, c.i)) {
-            svgText(g, juce::String::fromUTF8("FEEDBACK z\xe2\x81\xbb\xc2\xb9"), 600.f, y + 12.f, 11.f, hex(0xf4be2a), 1);
-        }
-        svgText(g, juce::String::fromUTF8(AMTS[k % 8]), 696.f, y + 12.f, 14.f, hex(0x8c877b), 1);
-    }
-    if (cords_.empty()) {
-        svgText(g, juce::String::fromUTF8("NO CORDS \xc2\xb7 DRAG FROM AN OUT TO AN IN"), 24.f, 70.f, 14.f, hex(0x8c877b));
-    }
-    const juce::String foot =
-        (cords_.size() > 9 ? "+" + juce::String(static_cast<int>(cords_.size()) - 9) + juce::String::fromUTF8(" MORE \xc2\xb7 ")
-                           : juce::String()) +
-        "SOFT CLIP + DC BLOCK ON EVERY LOOP";
-    svgText(g, foot, 24.f, 308.f, 10.f, hex(0x5e5a50), -1, false, 1.f);
-}
-
-void LiftPanel::paintFoot(Graphics& g) {
-    const auto L = labels();
-    const float cw = (568.f - 42.f) / 4.f;
-    for (int i = 0; i < 4; ++i) {
-        const float x = 16.f + static_cast<float>(i) * (cw + 14.f);
-        const juce::Font f = mono(false, 9.f, 0.06f);
-        text(g, L[i], f, hex(SCR[i]), {x, 364.f, cw, 13.5f}, Justification::centredLeft);
-        const juce::String v = encDisplay(i);
-        const float vw = cssWidth(400, true, 9.f, 0.06f, v);
-        text(g, v, f, hex(0xede6d6), {x + cw - vw, 364.f, vw + 6.f, 13.5f}, Justification::centredLeft);
-        g.setColour(hex(0x1c1c1c));
-        g.fillRect(x, 383.5f, cw, 6.f);
-        g.setColour(hex(SCR[i]));
-        g.fillRect(x, 383.5f, cw * static_cast<float>(juce::roundToInt(enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)] * 100.f)) / 100.f, 6.f);
-    }
 }
 
 // ------------------------------------------------------------------ knobs

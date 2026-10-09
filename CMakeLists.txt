@@ -172,6 +172,7 @@ if(LIFT_BUILD_APP)
         ${CMAKE_SOURCE_DIR}/panel/Fonts.cpp
         ${CMAKE_SOURCE_DIR}/panel/LiftPanel.cpp
         ${CMAKE_SOURCE_DIR}/panel/LiftPanelPaint.cpp
+        ${CMAKE_SOURCE_DIR}/panel/LiftPanelScreen.cpp
         ${CMAKE_SOURCE_DIR}/panel/LiftProcessor.cpp
     )
     juce_add_binary_data(lift_fonts

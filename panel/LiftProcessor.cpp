@@ -89,6 +89,27 @@ void LiftProcessor::send(Cmd c, int a, int b, double v) noexcept {
     }
 }
 
+void LiftProcessor::pushScope(const float* x, int n) noexcept {
+    const auto w = scopeFifo_.write(juce::jmin(n, scopeFifo_.getFreeSpace()));
+    for (int k = 0; k < w.blockSize1; ++k) {
+        scope_[w.startIndex1 + k] = x[k];
+    }
+    for (int k = 0; k < w.blockSize2; ++k) {
+        scope_[w.startIndex2 + k] = x[w.blockSize1 + k];
+    }
+}
+
+int LiftProcessor::readScope(float* dest, int maxSamples) noexcept {
+    const auto r = scopeFifo_.read(juce::jmin(maxSamples, scopeFifo_.getNumReady()));
+    for (int k = 0; k < r.blockSize1; ++k) {
+        dest[k] = scope_[r.startIndex1 + k];
+    }
+    for (int k = 0; k < r.blockSize2; ++k) {
+        dest[r.blockSize1 + k] = scope_[r.startIndex2 + k];
+    }
+    return r.blockSize1 + r.blockSize2;
+}
+
 void LiftProcessor::apply(const Command& c) noexcept {
     TapeRuntime& rt = *rt_;
     switch (c.cmd) {
@@ -186,6 +207,7 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     }
 
     const int n = buffer.getNumSamples();
+    float trackPeak[4] = {0.f, 0.f, 0.f, 0.f};
     float* outL = buffer.getWritePointer(0);
     float* outR = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : outL;
     for (int start = 0; start < n; start += kChunk) {
@@ -195,6 +217,22 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         }
         float* s = synth_.get();
         voice_.render(s, m, sampleRate_);
+        pushScope(s, m);
+        if (rt.playing && rt.frames > 0) {
+            // Track meters: peak of what is on each track under the head.
+            const int p0 = juce::jlimit(0, rt.frames - 1, static_cast<int>(rt.pos));
+            const int p1 = juce::jmin(rt.frames, p0 + m);
+            for (int t = 0; t < kTrackCount && t < 4; ++t) {
+                float pk = 0.f;
+                if (!rt.mute[t]) {
+                    const float* x = rt.ch[t][0];
+                    for (int i = p0; i < p1; ++i) {
+                        pk = juce::jmax(pk, x[i] < 0.f ? -x[i] : x[i]);
+                    }
+                }
+                trackPeak[t] = juce::jmax(trackPeak[t], pk);
+            }
+        }
         process_block(rt, s, s, outL + start, outR + start, m);
         for (int i = 0; i < m; ++i) {
             outL[start + i] += s[i];  // input monitor
@@ -206,6 +244,14 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
     for (int ch = 2; ch < buffer.getNumChannels(); ++ch) {
         buffer.clear(ch, 0, n);
     }
+    for (int t = 0; t < 4; ++t) {
+        uiTrackLevel[t].store(trackPeak[t], std::memory_order_relaxed);
+    }
+    uiMasterLevel.store(buffer.getMagnitude(0, 0, n), std::memory_order_relaxed);
+    uiSynthEnv.store(voice_.env, std::memory_order_relaxed);
+    uiSynthNote.store(voice_.gate ? voice_.note : -1, std::memory_order_relaxed);
+    uiWowPhase.store(static_cast<float>(rt.engine.wowPhase), std::memory_order_relaxed);
+    uiWowDepth.store(rt.engine.p.wowDepth + rt.engine.p.flutterDepth, std::memory_order_relaxed);
     uiPos.store(rt.pos, std::memory_order_relaxed);
     uiPlaying.store(rt.playing, std::memory_order_relaxed);
     uiRecording.store(rt.recording, std::memory_order_relaxed);

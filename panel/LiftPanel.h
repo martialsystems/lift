@@ -3,6 +3,7 @@
 #pragma once
 
 #include "LiftProcessor.h"
+#include "ScreenAnim.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -35,7 +36,14 @@ public:
     Mode mode() const { return mode_; }
     const std::vector<Cord>& cords() const { return cords_; }
     juce::String infoText() const { return info_; }
-    void tick() { timerCallback(); }
+    void tick() { advance(1.0 / 60.0); }
+    // Steps the screen animation clock. The 60 Hz timer calls it with wall
+    // time; tests call it with a fixed step to render frame sequences.
+    void advance(double dt);
+    void setReducedMotion(bool r) { reducedMotion_ = r; }
+    double animTime() const { return t_; }
+    // Screen area in component coordinates (what the animation repaints).
+    static juce::Rectangle<int> screenArea();
 
     void paint(juce::Graphics& g) override;
     void mouseMove(const juce::MouseEvent& e) override;
@@ -123,9 +131,15 @@ private:
     int heldKeyCode_ = 0;
     bool mouseNote_ = false;
 
-    float reelAngle_ = 0.f;
     double lastTick_ = 0.0;
-    double shownPos_ = -1.0;
+    double t_ = 0.0;
+    bool reducedMotion_ = false;
+    ScreenAnim an_;
+    juce::Image screenBg_;
+    float screenBgScale_ = 0.f;
+    juce::Image cableImg_;
+    juce::int64 cableKey_ = -1;
+    float cableScale_ = 0.f;
 
     LiftProcessor& proc_;
     juce::Image grain_;
@@ -168,6 +182,9 @@ private:
     void paintScreen(juce::Graphics& g);
     void paintStatus(juce::Graphics& g);
     void paintView(juce::Graphics& g);
+    void paintViewFor(juce::Graphics& g, int view);
+    void paintScreenBg(juce::Graphics& g);
+    double getSampleRateForScope() const { return proc_.getSampleRate() > 0.0 ? proc_.getSampleRate() : 48000.0; }
     void paintViewTape(juce::Graphics& g);
     void paintViewSynth(juce::Graphics& g);
     void paintViewDrum(juce::Graphics& g);

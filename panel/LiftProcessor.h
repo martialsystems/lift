@@ -80,6 +80,18 @@ public:
     std::atomic<float> uiReelSpeed{0.f};  // signed tape speed, 0 when stopped
     std::atomic<bool> uiRecording{false};
     std::atomic<bool> uiPlaying{false};
+    std::atomic<float> uiTrackLevel[4] = {};  // peak of each track under the head (0 when muted)
+    std::atomic<float> uiMasterLevel{0.f};    // output peak of the last block
+    std::atomic<float> uiSynthEnv{0.f};       // placeholder voice envelope
+    std::atomic<int> uiSynthNote{-1};
+    std::atomic<float> uiWowPhase{0.f};       // engine wow LFO phase, radians
+    std::atomic<float> uiWowDepth{0.f};       // wow + flutter depth (fraction)
+
+    // Scope tap: the placeholder voice output, written by the audio thread into
+    // a fixed single-producer/single-consumer ring (no locks, no allocation).
+    // The panel drains it on the message thread. Drops samples when full.
+    static constexpr int kScopeSize = 8192;
+    int readScope(float* dest, int maxSamples) noexcept;
 
     // Test access (not real-time safe to use while audio runs).
     TapeRuntime& runtime() noexcept { return *rt_; }
@@ -93,6 +105,9 @@ private:
     juce::AbstractFifo fifo_{256};
     Command cmds_[256];
     PlaceholderVoice voice_;
+    juce::AbstractFifo scopeFifo_{kScopeSize};
+    float scope_[kScopeSize] = {};
+    void pushScope(const float* x, int n) noexcept;
     juce::HeapBlock<float> synth_;
     int synthSize_ = 0;
     float lastBias_ = -1.f;
