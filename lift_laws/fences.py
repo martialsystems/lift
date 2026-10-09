@@ -7,6 +7,7 @@ Verify-before-report covers README.md and LICENSE. These fences do not.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -42,13 +43,15 @@ RADIO_FUNCS = frozenset({"lift_radio_tune", "lift_radio_read", "lift_radio_captu
 _DRAFT = frozenset(DRAFT)
 _WORD = re.compile(r"[A-Za-z]+")
 _FORBIDDEN = re.compile(
-    r"\b(?:malloc|calloc|realloc|fopen|fclose|socket|connect|listen|accept|new|delete"
+    r"\b(?:malloc|calloc|realloc|fopen|fclose|socket|connect|recv|send|listen|accept|new|delete"
     r"|prepare_tracks|release_tracks|project_read_info|project_read_audio|project_write"
-    r"|lift_radio_tune|lift_radio_read|lift_radio_capture)\b"
+    r"|lift_radio_tune|lift_radio_read|lift_radio_capture"
+    r"|pool_import|pool_add_pcm|pool_load|pool_read|pool_set_map)\b"
     r"|std::"
     r"|#include\s*[<\"](?:fstream|string|vector)[>\"]"
     r"|#include\s*\"(?:project|radio)/"
 )
+_CAPTURE_BAN = re.compile(r"\b(?:socket|connect|recv|send|listen|accept|fopen)\b")
 _C_ARRAY = re.compile(r"const char\* const (\w+)\[\] = \{(.*?)\};", re.S)
 _ROWS = re.compile(r"constexpr Character kRows\[kCharacterCount\] = \{(.*?)\};", re.S)
 _ROW_NAME = re.compile(r'\{\s*"([^"]+)"')
@@ -130,6 +133,85 @@ def audio_text_problems(text: str) -> list[str]:
             seen.add(token)
             problems.append(token)
     return problems
+
+
+def _scan_pairs(text: str, open_at: int, opener: str, closer: str) -> int | None:
+    depth = 0
+    i = open_at
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def function_body(text: str, name: str) -> str | None:
+    stripped, unclosed = strip_cpp_comments(text)
+    if unclosed:
+        return None
+    start = 0
+    while True:
+        at = stripped.find(name, start)
+        if at < 0:
+            return None
+        before = stripped[at - 1] if at else " "
+        if before.isalnum() or before == "_" or not stripped.startswith("(", at + len(name)):
+            start = at + len(name)
+            continue
+        paren = _scan_pairs(stripped, at + len(name), "(", ")")
+        if paren is None:
+            return None
+        i = paren + 1
+        while i < len(stripped) and stripped[i] in " \t\r\n":
+            i += 1
+        if stripped.startswith("noexcept", i):
+            i += len("noexcept")
+            while i < len(stripped) and stripped[i] in " \t\r\n":
+                i += 1
+        if i >= len(stripped) or stripped[i] != "{":
+            start = at + len(name)
+            continue
+        end = _scan_pairs(stripped, i, "{", "}")
+        if end is None:
+            return None
+        return stripped[i + 1 : end]
+
+
+def callback_source_problems(text: str) -> list[str]:
+    body = function_body(text, "lift_radio_read")
+    if body is None:
+        return ["lift_radio_read body missing"]
+    body = re.sub(r"\blift_radio_read\b", "", body)
+    return audio_text_problems(body)
+
+
+def capture_source_problems(text: str) -> list[str]:
+    body = function_body(text, "lift_radio_capture")
+    if body is None:
+        return ["lift_radio_capture body missing"]
+    found: list[str] = []
+    for match in _CAPTURE_BAN.finditer(body):
+        token = match.group(0)
+        if token not in found:
+            found.append(token)
+    return found
 
 
 def draft_words(text: str) -> list[str]:
@@ -328,11 +410,25 @@ def measure_radio(root: Path) -> list[str]:
         return ["radio client missing"]
     problems: list[str] = []
     found: set[str] = set()
+    saw_read = False
+    saw_capture = False
     for path in files:
         text = _read(path)
         for item in radio_text_problems(text):
             problems.append(f"{path.name}: {item}")
         found.update(_RADIO_SYM.findall(text))
+        if function_body(text, "lift_radio_read") is not None:
+            saw_read = True
+            for item in callback_source_problems(text):
+                problems.append(f"{path.name}: {item}")
+        if function_body(text, "lift_radio_capture") is not None:
+            saw_capture = True
+            for item in capture_source_problems(text):
+                problems.append(f"{path.name}: {item}")
+    if not saw_read:
+        problems.append("lift_radio_read body missing")
+    if not saw_capture:
+        problems.append("lift_radio_capture body missing")
     if found != RADIO_FUNCS:
         problems.append(f"radio symbols {sorted(found)!r}")
     return problems
@@ -400,6 +496,17 @@ def measure_version(root: Path) -> list[str]:
 
 
 def ensure_build(root: Path) -> None:
+    needed = (
+        root / "build" / "lift_tests",
+        root / "build" / "liblift_vst3_core.a",
+        root / "build" / "liblift_radio.a",
+        root / "build" / "liblift_core.a",
+    )
+    if os.environ.get("LIFT_NO_REBUILD") == "1":
+        missing = [path.name for path in needed if not path.is_file()]
+        if missing:
+            raise SystemExit(f"LIFT_NO_REBUILD missing {missing}")
+        return
     subprocess.run(
         ["cmake", "-S", str(root), "-B", str(root / "build"), "-DCMAKE_BUILD_TYPE=Release"],
         cwd=root,

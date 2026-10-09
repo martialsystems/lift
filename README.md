@@ -55,7 +55,7 @@ The factory bank is 64 synth presets and 16 kits, written for LIFT and stored in
 
 One pool. Drop a file on the window, or put it in the project's `in/` folder. Import decodes off the audio thread, shows progress on the In screen, then commits the file. You pick kit or Spool with encoder 1.
 
-Wav, aif, and flac are the formats on the screen. Mp3 is accepted and stored as 48 kHz float wav. The cap is 2 GB per project, with a warning at 1.5 GB. A file already in the pool is recognized by its contents and not stored again. A 30-minute file is refused or trimmed, with the reason on screen.
+Wav, aif, and flac are the formats on the screen. Mp3 is accepted and stored as 48 kHz float wav. The cap is 2 GB per project, with a warning at 1.5 GB. A file already in the pool is recognized by its contents and not stored again. A file longer than 30 minutes is refused, with the reason on screen.
 
 The radio is a client. A directory ships with the app, and you can keep your own list. Each entry is a name, a URL, and a codec hint. Streams are Icecast or plain HTTP, in Opus, Vorbis, or MP3. Encoder 1 moves through the directory. Encoder 2 takes a URL. Encoder 3 is input gain. Encoder 4 is the record threshold. Decode runs on a side thread into a ring. If the stream underruns, the audio callback keeps running and a small flag marks the gap.
 
@@ -130,7 +130,7 @@ No account. Files stay in the project folder.
 
 ## Status
 
-Published 2026-10-08. Updated 2026-10-08: the name catalog, the project loader, and the Eco tape are in this repository. `lift_tests` measures the four-pass overdub. GraphForge pins five fences: project version, audio thread, shipped names, radio client, and the VST3 build. The window, the sample-pool decoder, and the synth voices are not built yet.
+Published 2026-10-08. Updated 2026-10-08: the name catalog, the project loader, the Eco tape, the sample pool, and the radio client are in this repository. `lift_tests` measures the four-pass overdub, a pool import, a duplicate hash, a capture with the network pulled mid-read, and a project reload. The default build runs five fences and fails if one refuses: project version, audio thread, shipped names, radio client, and the VST3 build. The window and the synth voices are not built yet.
 
 ## Legal
 

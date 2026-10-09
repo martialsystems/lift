@@ -7,5 +7,5 @@
   "policy": "report_only",
   "local_candidates": ["~/graphforge"],
   "require_product_laws": true,
-  "note": "Five fail-closed fences: newer project version, audio thread, shipped names, radio client, VST3 without radio. Verify-before-report stays on the README and the license."
+  "note": "policy report_only is the engine checkout sync. The default CMake target lift_laws runs the five fences and fails the build if one refuses: project version, audio thread, shipped names, radio client, VST3 without radio. Verify-before-report stays on the README and the license."
 }

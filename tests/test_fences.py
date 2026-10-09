@@ -17,6 +17,8 @@ from lift_laws.fences import (
     audio_decision,
     audio_text_problems,
     build_gate,
+    callback_source_problems,
+    capture_source_problems,
     draft_words,
     measure_all,
     names_decision,
@@ -62,6 +64,7 @@ def main() -> int:
     expect(audio_text_problems(malloc_src) != [], "malloc not seen", failures)
     expect(audio_text_problems("void f() { prepare_tracks(rt, 8); }\n") != [], "prepare_tracks", failures)
     expect(audio_text_problems("void f() { project_write(dir, info, rt); }\n") != [], "project_write", failures)
+    expect(audio_text_problems("void f() { pool_import(a, b, c, d, e); }\n") != [], "pool_import", failures)
     comment = "// Audio thread. No allocation, no disk, no socket.\nvoid f() {}\n"
     expect(audio_text_problems(comment) == [], f"comment false fail {audio_text_problems(comment)}", failures)
     block = "/* socket and fopen stay in this note */\nvoid f() {}\n"
@@ -73,6 +76,15 @@ def main() -> int:
 
     expect(radio_text_problems("void relay();") != [], "relay", failures)
     expect(radio_text_problems("int lift_radio_tune();") == [], "tune is a client", failures)
+    bad_read = "int lift_radio_read(float* dst, int n) noexcept { recv(0, dst, n, 0); return 1; }\n"
+    expect(callback_source_problems(bad_read) != [], "callback recv", failures)
+    good_read = "int lift_radio_read(float* dst, int n) noexcept { return 0; }\n"
+    expect(callback_source_problems(good_read) == [], f"callback {callback_source_problems(good_read)}", failures)
+    bad_capture = "int lift_radio_capture(float* dst, int n) { socket(0, 0, 0); return 1; }\n"
+    expect(capture_source_problems(bad_capture) != [], "capture socket", failures)
+    cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    expect("add_custom_target(lift_laws ALL" in cmake, "lift_laws target", failures)
+    expect("LIFT_NO_REBUILD=1" in cmake, "no rebuild", failures)
 
     bad_region = "add_library(lift_vst3_core STATIC x.cpp)\ntarget_link_libraries(lift_vst3_core PUBLIC lift_radio)\n"
     expect(vst3_region_problems(bad_region) != [], "vst3 link", failures)

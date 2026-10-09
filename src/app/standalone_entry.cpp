@@ -3,7 +3,7 @@
 #include "radio/client.h"
 
 int lift_standalone_entry() {
-    RadioRequest request;
+    RadioRequest request{};
     request.url = "";
     return lift_radio_tune(&request);
 }
