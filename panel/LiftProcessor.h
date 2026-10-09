@@ -193,7 +193,8 @@ private:
     void renderInternal(float* outL, float* outR, int m) noexcept;  // m <= kChunk, at 48 kHz
     void handleMidiIn(const juce::MidiMessage& m, int samplePos) noexcept;
     void post(uint8_t kind, int a, int b) noexcept;
-    void timerCallback() override { drainMidiEvents(); }
+    void timerCallback() override;
+    std::atomic<int> pendingLoaded_{0};
 
     std::unique_ptr<TapeRuntime> rt_;
     bool tracksReady_ = false;

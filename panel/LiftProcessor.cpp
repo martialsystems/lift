@@ -745,6 +745,14 @@ void LiftProcessor::setKnob(int target, float value) {
     }
 }
 
+void LiftProcessor::timerCallback() {
+    const int pending = pendingLoaded_.exchange(0);
+    if (pending > 0 && listener_ != nullptr) {
+        listener_->stateLoaded(pending - 1);
+    }
+    drainMidiEvents();
+}
+
 void LiftProcessor::drainMidiEvents() {
     const int ready = midiFifo_.getNumReady();
     if (ready == 0) {
@@ -939,7 +947,10 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     drumKit.store(s.sel[1]);
     synthEngine.store(s.sel[0]);
     patch.publish(s.cords);
-    if (listener_ != nullptr) {
+    auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+    if (mm != nullptr && !mm->isThisTheMessageThread()) {
+        pendingLoaded_.store(slot + 1);  // a host restored state off the message thread: tell the panel from the timer
+    } else if (listener_ != nullptr) {
         listener_->stateLoaded(slot);
     }
     return LoadResult::Ok;
