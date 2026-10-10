@@ -280,6 +280,7 @@ void runStateChecks(const Check& check) {
     for (double sr : {44100.0, 96000.0, 48000.0}) {
         lift::LiftProcessor p;
         p.prepareToPlay(sr, 512);
+        p.clearDrumPatterns();
         TapeRuntime& rt = p.runtime();
         for (int i = 0; i < rt.frames; ++i) {  // 1 kHz recorded at the 48 kHz tape rate
             rt.ch[0][0][i] = rt.ch[0][1][i] = 0.4f * std::sin(2.f * juce::MathConstants<float>::pi * 1000.f * i / 48000.f);
@@ -328,8 +329,8 @@ void runStateChecks(const Check& check) {
         Feed f{p, 48000.0};
         f.at(0.0, juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)));
         f.run(0.3, true);
-        const auto& v = p.voice();
-        check(v.gate && v.note == 60 && std::abs(v.vel - 1.f) < 1e-3f, "note on: pitch and velocity 127");
+        const auto& v = p.instrument().synth;
+        check(v.noteGate(60) && std::abs(v.noteVel(60) - 1.f) < 1e-3f, "note on: pitch and velocity 127");
         double loud = 0.0;
         for (size_t i = 4800; i < f.left.size(); ++i) {
             loud = juce::jmax(loud, static_cast<double>(std::abs(f.left[i])));
@@ -341,26 +342,26 @@ void runStateChecks(const Check& check) {
         for (size_t i = 4800; i < f.left.size(); ++i) {
             soft = juce::jmax(soft, static_cast<double>(std::abs(f.left[i])));
         }
-        check(std::abs(v.vel - 20.f / 127.f) < 1e-3f && soft < 0.6 * loud, "velocity 20 plays softer than 127");
+        check(std::abs(v.noteVel(60) - 20.f / 127.f) < 1e-3f && soft < 0.6 * loud, "velocity 20 plays softer than 127");
         f.at(0.0, juce::MidiMessage::pitchWheel(1, 16383));
         f.at(0.0, juce::MidiMessage::controllerEvent(1, 1, 127));
         f.run(0.02);
-        check(std::abs(v.bend - 2.f) < 0.01f && std::abs(v.mod - 1.f) < 1e-3f, "pitch bend (+2 st) and mod wheel");
+        check(std::abs(v.bend() - 2.f) < 0.01f && std::abs(v.mod() - 1.f) < 1e-3f, "pitch bend (+2 st) and mod wheel");
         f.at(0.0, juce::MidiMessage::controllerEvent(1, 64, 127));
         f.at(0.001, juce::MidiMessage::noteOff(1, 60));
         f.run(0.05);
-        const bool held = v.gate;
+        const bool held = v.noteGate(60);
         f.at(0.0, juce::MidiMessage::controllerEvent(1, 64, 0));
         f.run(0.02);
-        check(held && !v.gate, "sustain pedal holds the note until it lifts");
+        check(held && !v.noteGate(60), "sustain pedal holds the note until it lifts");
         f.at(0.0, juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(90)));
         f.at(0.001, juce::MidiMessage::noteOn(1, 64, static_cast<juce::uint8>(90)));
         f.at(0.002, juce::MidiMessage::noteOff(1, 64));
         f.run(0.02);
-        check(v.gate && v.note == 60, "legato: releasing the top note returns to the held one");
+        check(v.noteGate(60) && !v.noteGate(64), "poly: releasing the top note keeps the held one sounding");
         f.at(0.0, juce::MidiMessage::noteOff(1, 60));
         f.run(0.02);
-        check(!v.gate, "note off");
+        check(!v.anyGate(), "note off");
 
         // clock in: 24 ppqn at 132 BPM, then start / stop / continue
         const double per = 60.0 / (132.0 * 24.0);

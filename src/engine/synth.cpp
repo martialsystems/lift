@@ -313,6 +313,18 @@ float PolySynth::env() const noexcept {
     }
     return e;
 }
+bool PolySynth::noteGate(int note) const noexcept {
+    for (int i = 0; i < kSynthVoices; ++i) {
+        if (v_[i].active && v_[i].gate && v_[i].note == note) return true;
+    }
+    return false;
+}
+float PolySynth::noteVel(int note) const noexcept {
+    for (int i = 0; i < kSynthVoices; ++i) {
+        if (v_[i].active && v_[i].gate && v_[i].note == note) return static_cast<float>(v_[i].vel);
+    }
+    return 0.f;
+}
 bool PolySynth::anyGate() const noexcept {
     for (int i = 0; i < kSynthVoices; ++i) {
         if (v_[i].active && v_[i].gate) return true;

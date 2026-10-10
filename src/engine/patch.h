@@ -39,7 +39,8 @@ struct PlanCable {
 struct PatchPlan {
     int count = 0;
     PlanCable c[kMaxCables];
-    std::int8_t order[kNodes] = {};
+    std::int8_t order[kNodes] = {N_CLOCK, N_KEYS, N_DRUMS, N_RADIO, N_LFO, N_ENV, N_SH,
+                                 N_VCA, N_SLEW, N_QUANT, N_SYNTH, N_FX, N_TAPE};  // no cables: rack order
     float amount[kMaxCables] = {};  // attenuation per cable: LIFT's cords have none, so 1.0 (100 %)
 };
 

@@ -30,6 +30,14 @@ struct Rig {
     std::unique_ptr<lift::LiftPanel> panel;
     Rig() {
         p.prepareToPlay(48000.0, 512);
+        p.clearDrumPatterns();  // the tape alone (the drum sequencer follows the transport)
+        // TAPE / MIX / IN are judged on a bright steady tone (LOOM with the filter
+        // open, like the old test voice) and the effect insert off
+        lift::UiState s = p.uiState();
+        s.sel[0] = 0;
+        s.enc[0] = {0.35f, 0.85f, 0.48f, 0.55f};
+        s.fx = false;
+        p.setUiState(s);
         panel = std::make_unique<lift::LiftPanel>(p);
         panel->setSize(lift::LiftPanel::kW, lift::LiftPanel::kH);
     }
@@ -235,12 +243,13 @@ void runKnobChecks(const Check& check) {
         r.turn(1, 99.f * 0.45f / 0.45f, 0.1);
     }
     {
-        // REC LVL: the live monitor runs through the record electronics
-        r.p.send(lift::Cmd::NoteOn, 57, 100);
+        // REC LVL: the live monitor runs through the record electronics (a hard-played note)
+        r.turn(2, -66.f, 0.2);  // REC LVL down to 0.3 (clean) first
+        r.p.send(lift::Cmd::NoteOn, 57, 127);
         r.run(0.3);
         const auto base = r.run(1.0);
         const float v0 = r.value(2, 2);
-        r.turn(2, 66.f, 0.3);  // up to 1.0
+        r.turn(2, 140.f, 0.3);  // up to 1.0 (hot)
         const auto hot = r.run(1.0);
         r.p.send(lift::Cmd::NoteOff, 57);
         r.run(0.5);
@@ -323,7 +332,16 @@ void runKnobChecks(const Check& check) {
         r.turn(0, 150.f, 0.1);
     }
 
-    // ---- SYNTH: the four macros on a played note (attack, hold, release)
+    // ---- SYNTH: the four macros on a played note (attack, hold, release), LOOM
+    {
+        r.panel.reset();  // a fresh panel picks the new state up (as after a load)
+        lift::UiState s = r.p.uiState();
+        s.sel[0] = 0;
+        for (int k = 0; k < 4; ++k) s.enc[0][static_cast<size_t>(k)] = lift::ui::ENC_DEFAULT[0][k];
+        r.p.setUiState(s);
+        r.panel = std::make_unique<lift::LiftPanel>(r.p);
+        r.panel->setSize(lift::LiftPanel::kW, lift::LiftPanel::kH);
+    }
     r.panel->act("mode:synth");
     auto note = [&] {
         r.p.send(lift::Cmd::NoteOn, 57, 100);

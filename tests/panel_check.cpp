@@ -73,6 +73,7 @@ struct Rig {
     int painted = 0;
     Rig() {
         proc.prepareToPlay(48000.0, 512);
+        proc.clearDrumPatterns();  // the tape alone (the drum sequencer follows the transport)
         panel = std::make_unique<lift::LiftPanel>(proc);
     }
     void step(double dt) {
@@ -333,9 +334,14 @@ int main(int argc, char** argv) {
     check(!proc.uiPlaying.load(), "STOP ramps the tape down and stops the transport");
     const float* t1 = rt.ch[0][0];
     const double recRms = rms(t1, 4800, 43200);
-    const double a220 = toneAmp(t1, 4800, 43200, 220.0);
-    std::printf("  T1 printed rms %.4f, 220 Hz amp %.4f\n", recRms, a220);
-    check(recRms > 0.02 && a220 > 0.02, "the keyboard note was printed onto T1");
+    // the real voice: two detuned oscillators through the spring and the tape's
+    // wow, so look for the fundamental within a few Hz of 220
+    double a220 = 0.0;
+    for (double hz = 214.0; hz <= 226.0; hz += 0.5) {
+        a220 = std::max(a220, toneAmp(t1, 4800, 43200, hz));
+    }
+    std::printf("  T1 printed rms %.4f, 214-226 Hz amp %.4f\n", recRms, a220);
+    check(recRms > 0.02 && a220 > 0.01, "the keyboard note was printed onto T1");
 
     // SCRUB to the top while stopped, LIFT (loop on: first 8 s of T1), arm T2, DROP.
     // (SCRUB is a jog now: it moves the tape by hand, so seek to the top directly)

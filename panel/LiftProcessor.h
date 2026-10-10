@@ -152,6 +152,13 @@ public:
     void setUiState(const UiState& s);
     // patterns, drum knobs, FX, kit and engine: from a state to the engine (prev: send only changes)
     void applyExtras(const UiState& s, const UiState* prev);
+    const eng::Instrument& instrument() const noexcept { return inst_; }  // tests
+    // Empty every drum pattern (tests that measure the tape alone). Message thread.
+    void clearDrumPatterns() {
+        UiState s = ui_;
+        for (auto& k : s.drumPat) k.fill(0u);
+        setUiState(s);
+    }
 
     enum class LoadResult { Ok, Empty, BadSlot, BadData, NewerVersion };
     bool saveSlot(int slot);

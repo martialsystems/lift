@@ -55,6 +55,10 @@ public:
     float env() const noexcept;      // loudest voice envelope
     int lastNote() const noexcept { return lastNote_; }
     bool anyGate() const noexcept;
+    bool noteGate(int note) const noexcept;   // a voice holds this note (key or sustain)
+    float noteVel(int note) const noexcept;   // its velocity, 0 when none
+    float bend() const noexcept { return bend_; }
+    float mod() const noexcept { return mod_; }
 
     struct Voice;
 

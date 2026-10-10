@@ -168,7 +168,7 @@ struct FxRack::Spring {
             }
             // the kick is a low thump into the springs (they turn it into the chirp)
             kickLp += kickA * (kick - kickLp);
-            const float thump = kickLp * 0.6f;
+            const float thump = kickLp * 0.3f;
             kick *= 0.995f;
             if (kick < 1e-6f) kick = 0.f;
             shake *= shakeDecay;
