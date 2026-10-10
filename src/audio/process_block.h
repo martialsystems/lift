@@ -25,7 +25,7 @@ int tape_transport(TapeRuntime& rt, int n, float* eoc) noexcept;
 // nudge (null = none). Writes rt.headL/R[t] and, when non-null, the mono head
 // (+-1 full scale, before the fader).
 void tape_head(TapeRuntime& rt, int t, const float* speedCv, bool rev, const float* scrubCv, float* mono) noexcept;
-// Record + mix for the block. send (optional): post-fader dry sum of the loops.
-void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, float* send, int n) noexcept;
+// Record + mix for the block. sendBus (optional): post-fader dry sum of the loops.
+void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, float* sendBus, int n) noexcept;
 
 void process_block(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, int n) noexcept;

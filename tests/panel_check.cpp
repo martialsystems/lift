@@ -10,6 +10,7 @@
 #include "PanelData.h"
 #include "tape/transport.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cmath>
@@ -363,7 +364,13 @@ int main(int argc, char** argv) {
     run(0.02);
     const double t2Rms = rms(rt.ch[1][0], 4800, 43200);
     std::printf("  T2 after DROP rms %.4f\n", t2Rms);
-    check(rt.arm == 1 && std::abs(t2Rms - recRms) < recRms * 0.05, "LIFT + DROP overdubs the take onto T2");
+    // LIFT keeps what was just heard (the capture), trimmed to the keep target
+    const auto kept = panel.keptClip();
+    const float keptLu = kept ? lift::eng::integratedLufs(kept->l.data(), kept->r.data(), kept->frames(), 48000.0) : -200.f;
+    std::printf("  kept %.2f s at %.2f LUFS (in %.2f, trim %+.2f dB)\n", kept ? kept->frames() / 48000.0 : 0.0, keptLu,
+                kept ? kept->lufsIn : 0.f, kept ? kept->gainDb : 0.f);
+    check(kept != nullptr && std::abs(keptLu - lift::eng::kTargetLufs) < 1.f, "LIFT keeps what was heard, trimmed to the target");
+    check(rt.arm == 1 && t2Rms > 0.02, "LIFT + DROP overdubs the kept sound onto T2");
 
     // PLAY back: T1 + T2 through the playback chain.
     const size_t from = outL.size();
@@ -414,17 +421,14 @@ int main(int argc, char** argv) {
         TapeRuntime& rt2 = r.proc.runtime();
         const double fr = rt2.frames;
         for (int i = 0; i < 48000 * 6; ++i) {  // known material on T1 and T2
-            rt2.ch[0][0][i] = rt2.ch[0][1][i] = 0.5f;
-            rt2.ch[1][0][i] = rt2.ch[1][1][i] = 0.25f;
+            rt2.ch[0][0][i] = rt2.ch[0][1][i] = 0.5f * std::sin(2.0 * 3.14159265 * 220.0 * i / 48000.0);
+            rt2.ch[1][0][i] = rt2.ch[1][1][i] = 0.25f * std::sin(2.0 * 3.14159265 * 330.0 * i / 48000.0);
         }
         p.pressMem(lift::ui::kShiftSlot);
         r.step(0.2);
         check(p.shiftActive(), "keypad slot above STOP is SHIFT; a tap latches it");
-        p.pressMem(2);  // top row, middle: DROP now; SHIFT + DROP opens the SAVE slot picker
-        check(p.picker() == lift::LiftPanel::Picker::Save, "DROP sits in SHIFT's old slot (SHIFT + DROP = save)");
-        p.pickCancel();
-        p.pressMem(lift::ui::kShiftSlot);
-        check(p.shiftActive(), "SHIFT latches again after the picker closes");
+        p.pressMem(2);  // top row, middle: DROP; SHIFT + DROP = the fast commit (keep + place)
+        check(p.keptClip() == nullptr && p.shiftActive(), "SHIFT + DROP with nothing heard keeps nothing (SHIFT stays latched)");
         r.proc.send(lift::Cmd::Seek, 0, 0, 48000.0);  // playhead (SCRUB is a jog now)  // SCRUB to 1 s
         r.step(0.05);
         p.pressKey(0);  // white 1: LOOP IN
@@ -455,14 +459,19 @@ int main(int argc, char** argv) {
         check(!rt2.playing && rt2.engine.ramp == 0.f, "SHIFT + STOP stops at once (no tape-stop ramp)");
         p.pressMem(0);  // SHIFT + LIFT: all tracks, loop region
         r.step(0.05);
-        check(rt2.clipFrames == 48000 && std::abs(rt2.clip[0][100] - 0.75f) < 1e-6f, "SHIFT + LIFT lifts the sum of all tracks");
+        {
+            const auto k = p.keptClip();
+            const float want = (0.5f * std::sin(2.0 * 3.14159265 * 220.0 * 48100 / 48000.0) +
+                                0.25f * std::sin(2.0 * 3.14159265 * 330.0 * 48100 / 48000.0)) * std::pow(10.f, (k ? k->gainDb : 0.f) / 20.f);
+            check(k != nullptr && k->frames() == 48000 && std::abs(k->l[100] - want) < 0.02f,
+                  "SHIFT + LIFT keeps the sum of all tracks (loop region, trimmed)");
+        }
         p.pressKey(7);  // white 5 (G): TRACK 2
         r.step(0.02);
         check(rt2.arm == 1, "SHIFT + white 5 arms track 2");
         p.pressKey(13);  // C#4 = black 6: CLEAR (first press only asks)
         r.step(0.1);
         check(rt2.ch[rt2.arm][0][1000] != 0.f, "CLEAR asks before clearing");
-        p.pressKey(10);  // black 5: UNDO (nothing to undo yet: no change)
         r.proc.send(lift::Cmd::Seek, 0, 0, 48000.0);  // playhead (SCRUB is a jog now)
         r.step(0.05);
         const float before = rt2.ch[1][0][53000];
@@ -472,10 +481,10 @@ int main(int argc, char** argv) {
         p.pressKey(10);  // black 5: UNDO DROP
         r.step(0.05);
         std::printf("  T2 at 1 s: %.3f -> drop %.3f -> undo %.3f\n", before, dropped, rt2.ch[1][0][53000]);
-        check(std::abs(dropped - (before + 0.75f)) < 1e-4f && rt2.ch[1][0][53000] == before, "UNDO DROP restores the track");
+        check(std::abs(dropped - before) > 1e-3f && rt2.ch[1][0][53000] == before, "DROP overdubs the kept sum; UNDO restores the track");
         p.pressKey(13);
         r.step(0.6);
-        check(rt2.ch[1][0][1000] == 0.f && rt2.ch[1][0][48000 * 5] == 0.f && rt2.ch[0][0][1000] == 0.5f,
+        check(rt2.ch[1][0][1000] == 0.f && rt2.ch[1][0][48000 * 5] == 0.f && std::abs(rt2.ch[0][0][1000] - 0.5f * static_cast<float>(std::sin(2.0 * 3.14159265 * 220.0 * 1000 / 48000.0))) < 1e-6f,
               "CLEAR on the second press clears only the armed track");
         p.pressMem(lift::ui::kShiftSlot);
         check(!p.shiftActive(), "tap SHIFT again releases the latch");
@@ -510,6 +519,101 @@ int main(int argc, char** argv) {
         pn.advance(1.0);
         snap(pn, dir, "juce_slot_picker.png");
         pn.pickCancel();
+    }
+    {
+        std::printf("-- resample: keep, fast path, SELECT, one undo history\n");
+        Rig r;
+        auto& p = *r.panel;
+        TapeRuntime& rt = r.proc.runtime();
+        auto trackRms = [&](int t, int a, int b) { return rms(rt.ch[t][0], a, b); };
+        p.act("mode:synth");
+        p.noteOn(9);
+        r.step(2.0);
+        p.noteOff();
+        r.step(0.3);
+        const int h0 = p.historySize();
+        p.setPin(0, 0, 1);
+        check(p.historySize() == h0 + 1, "a pin joins the history");
+        p.act("lift");
+        const auto kept = p.keptClip();
+        const float lu = kept ? lift::eng::integratedLufs(kept->l.data(), kept->r.data(), kept->frames(), 48000.0) : -200.f;
+        std::printf("  LIFT kept %.2f s, %.2f LUFS in -> %.2f LUFS\n", kept ? kept->frames() / 48000.0 : 0.0,
+                    kept ? kept->lufsIn : 0.f, lu);
+        check(kept != nullptr && std::abs(lu - lift::eng::kTargetLufs) < 1.f, "LIFT keeps the last seconds heard, trimmed to target");
+        const lift::eng::Selection def = p.selection();
+        check(def.length > 0 && def.snap == lift::eng::SNAP_ZERO && !p.selectIsOpen(),
+              "a keep comes with its default selection (snap ZERO); SELECT stays shut");
+        r.proc.send(lift::Cmd::Seek, 0, 0, 0.0);
+        r.step(0.05);
+        p.act("drop");
+        r.step(0.05);
+        const double t1 = trackRms(0, 0, 48000);
+        check(!p.selectIsOpen() && t1 > 0.01 && p.lastDest() == 0, "DROP without SELECT places the default selection on T1");
+        p.setEnc(3, p.enc(0, 3) + 0.05f);  // red, right after the keep: opens SELECT and moves the start
+        r.step(0.05);
+        check(p.selectIsOpen() && !(p.selection() == def), "a knob turned after a keep opens SELECT (red moves the start)");
+        snap(p, dir, "juce_select.png");
+        p.undo();
+        check(p.selectIsOpen() && p.selection() == def, "UNDO with SELECT open reverts the SELECT edit first");
+        p.undo();
+        r.step(0.05);
+        check(trackRms(0, 0, 48000) < 1e-6, "the next UNDO takes the DROP back off T1");
+        p.undo();
+        check(p.keptClip() == nullptr && !p.selectIsOpen(), "then the KEEP");
+        p.undo();
+        check(p.pin(0, 0) == 0, "then the pin (one history for cables, pins, keeps, drops)");
+        // overdubs: pass 1 finished, pass 2 undone while it records
+        p.act("arm:2");
+        r.step(0.05);
+        p.act("play");
+        p.act("rec");
+        p.noteOn(4);
+        r.step(1.0);
+        p.noteOff();
+        p.act("rec");  // REC off, tape keeps playing: pass 1 done (and kept as a clip)
+        r.step(0.3);
+        std::vector<float> after1(rt.ch[2][0], rt.ch[2][0] + 48000 * 3);
+        const double pass1 = rms(after1.data(), 0, 48000 * 3);
+        check(pass1 > 0.01 && p.keptClip() != nullptr, "an overdub pass prints on T3 and REC keeps what was heard");
+        p.act("rec");  // pass 2
+        p.noteOn(7);
+        r.step(0.6);
+        p.undo();  // mid-pass
+        p.noteOff();
+        r.step(0.3);
+        double diff = 0.0;
+        for (int i = 0; i < 48000 * 3; ++i) diff = std::max(diff, static_cast<double>(std::abs(rt.ch[2][0][i] - after1[static_cast<size_t>(i)])));
+        std::printf("  pass 1 rms %.4f; after UNDO mid pass 2: max diff %.6f\n", pass1, diff);
+        check(!rt.recording && diff < 1e-6, "UNDO mid-overdub discards the current pass only");
+        p.undo();  // the REC keep
+        p.undo();  // pass 1
+        r.step(0.3);
+        check(rms(rt.ch[2][0], 0, 48000 * 3) < 1e-6, "UNDO again: the REC keep, then pass 1 comes off T3");
+        // SHIFT + DROP: keep and place in one go, into the last place used (T1)
+        p.act("stop");
+        r.step(1.0);
+        p.noteOn(9);
+        r.step(1.0);
+        p.noteOff();
+        r.step(0.2);
+        const int h1 = p.historySize();
+        p.act("dropnow");
+        r.step(0.05);
+        check(p.historySize() == h1 + 2 && p.lastDest() == 0 && trackRms(0, 0, 48000 * 8) > 0.01 && !p.selectIsOpen(),
+              "SHIFT + DROP keeps with the default selection and places on the last place (T1), no SELECT");
+        // hold DROP + a key: the key plays the sound as a one-shot
+        p.act("droppick");
+        p.noteOn(0);
+        check(p.lastDest() == 5, "hold DROP + a key puts the sound on that key");
+        // export
+        const juce::File ex = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("lift-export-check");
+        ex.deleteRecursively();
+        p.exportTo(ex);
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatReader> rd(wav.createReaderFor(ex.getChildFile("LIFT-T1.wav").createInputStream().release(), true));
+        check(rd != nullptr && rd->bitsPerSample == 24 && rd->sampleRate == 48000.0 && ex.getChildFile("LIFT-master.wav").existsAsFile() &&
+                  ex.getChildFile("LIFT-clip.wav").existsAsFile(),
+              "export writes the clip, T1-T4 and the master as 24-bit 48 kHz WAV");
     }
     runStateChecks([](bool ok, const juce::String& what) { check(ok, what); });
     runKnobChecks([](bool ok, const juce::String& what) { check(ok, what); });

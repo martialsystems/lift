@@ -2,7 +2,6 @@
 
 #include "audio/process_block.h"
 
-#include <cstring>
 
 #include <cmath>
 
@@ -56,7 +55,7 @@ int tape_transport(TapeRuntime& rt, int n, float* eoc) noexcept {
         rt.blkRate[i] = rate;
         const double before = rt.pos;
         transport_advance(rt, rate);
-        if (std::fabs(rt.pos - before - rate) > 1.0) {
+        if (fabs(rt.pos - before - rate) > 1.0) {
             rt.eocLeft = 96.f;  // the loop wrapped: 2 ms at 48 kHz
         }
         if (eoc != nullptr) {
@@ -97,7 +96,7 @@ void tape_head(TapeRuntime& rt, int t, const float* speedCv, bool rev, const flo
             double m = 1.0;
             if (speedCv != nullptr) {
                 const float v = speedCv[i] < -36.f ? -36.f : (speedCv[i] > 36.f ? 36.f : speedCv[i]);
-                m = std::exp2(static_cast<double>(v) / 12.0);
+                m = exp2(static_cast<double>(v) / 12.0);
             }
             const double base = rt.blkRate[i];
             const double eff = (rev ? -1.0 : 1.0) * base * m;
@@ -111,11 +110,11 @@ void tape_head(TapeRuntime& rt, int t, const float* speedCv, bool rev, const flo
     }
 }
 
-void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, float* send, int n) noexcept {
+void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, float* sendBus, int n) noexcept {
     const int m = rt.blkN < n ? rt.blkN : n;
     for (int i = m; i < n; ++i) {
         outL[i] = outR[i] = 0.f;
-        if (send != nullptr) send[i] = 0.f;
+        if (sendBus != nullptr) sendBus[i] = 0.f;
     }
     if (m <= 0) {
         rt.recWas = false;
@@ -146,7 +145,7 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
             rt.passTrack = rt.arm;
             rt.passId = static_cast<uint8_t>((rt.passCount - 1) % 255 + 1);  // 1..255, never 0
             if (rt.passId == 1 && rt.passCount > 1 && rt.passMark != nullptr) {
-                std::memset(rt.passMark, 0, static_cast<size_t>(rt.frames));  // ids wrapped: old marks go
+                for (int i = 0; i < rt.frames; ++i) rt.passMark[i] = 0;  // ids wrapped: old marks go
             }
         }
         for (int i = 0; i < m; ++i) {
@@ -222,8 +221,8 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
             sumR += xr * rt.panR[t];
             dry += 0.5f * (xl + xr);
         }
-        if (send != nullptr) {
-            send[i] = dry;
+        if (sendBus != nullptr) {
+            sendBus[i] = dry;
         }
         // Every loop shares the tape path, so the playback chain runs once on
         // the mix, at the motor's state for this sample.

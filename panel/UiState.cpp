@@ -135,6 +135,7 @@ juce::ValueTree UiState::toTree() const {
     t.setProperty("swing", swing, nullptr);
     t.setProperty("recSource", recSource, nullptr);
     t.setProperty("character", character, nullptr);
+    t.setProperty("cassette", cassette, nullptr);
     t.setProperty("color", color, nullptr);
     t.setProperty("stack", stack, nullptr);
     juce::ValueTree cs("Cords");
@@ -233,6 +234,7 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
     s.swing = clampInt(t["swing"], 0, 60, s.swing);
     s.recSource = clampInt(t["recSource"], 0, 2, s.recSource);
     s.character = clampInt(t["character"], 0, 3, s.character);
+    s.cassette = t.hasProperty("cassette") ? static_cast<bool>(t["cassette"]) : s.cassette;
     s.color = clampInt(t["color"], 0, 5, s.color);
     s.stack = t.getProperty("stack", s.stack);
     const bool v31 = t["jacks"].toString() == "v31";

@@ -108,6 +108,27 @@ void LiftPanel::advance(double dtD) {
     }
     busy = busy || (picker_ != Picker::None && (t_ - pickT_ < 0.5 || t_ - pickStepT_ < 0.6));
 
+    // overdub passes join the one history; a finished REC pass is also kept
+    // ("what you heard" while it ran) as the newest clip
+    {
+        const int pass = proc_.uiPassCount.load();
+        if (pass != seenPass_) {
+            seenPass_ = pass;
+            pushUndo(2);
+            hist_.back().pass = pass;
+            hist_.back().track = arm_;
+        }
+        const bool rec = proc_.uiRecording.load();
+        if (wasRec_ && !rec) {
+            const std::int64_t from = proc_.recCapStart.load();
+            if (from >= 0) {
+                keep(proc_.keepRange(from, proc_.captureNow()), "REC");
+            }
+        }
+        wasRec_ = rec;
+        busy = busy || selectOpen_;
+    }
+
     // view changes start a slide; the status label pops
     const int view = bay_ ? 5 : static_cast<int>(mode_);
     if (view != an_.view) {
@@ -448,6 +469,9 @@ void LiftPanel::paintView(Graphics& g) {
         paintViewFor(g, view);
     } else {
         paintTransition(g, view, p);
+    }
+    if (selectOpen_) {
+        paintViewSelect(g);
     }
     if (shiftAmt_ > 0.f) {
         Graphics::ScopedSaveState o(g);

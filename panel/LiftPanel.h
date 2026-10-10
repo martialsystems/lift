@@ -203,20 +203,54 @@ private:
     void memHold(int slot);
     // SELECT (P3): the window over what would be kept
     bool selectOpen_ = false;
-    void openSelect(bool lift);
+    bool selectFromLift_ = true;
+    void openSelect(int how);  // 0 a knob after a keep, 1 hold LIFT, 2 hold REC
+    void closeSelect();
     void selectTurn(int fn, float delta);
+    void selectKnob(int colour, float delta);  // physical knob: 0 yellow, 1 blue, 2 black, 3 red
     bool selectUndo();
+    // resampling: the newest keep, its selection, where DROP puts it
+    LiftProcessor::ClipPtr clip_;
+    eng::Selection selc_;
+    std::vector<eng::Selection> selHist_;
+    double selEditT_ = -10.0;
+    int selEditKnob_ = -1;
+    float selZoom_ = 0.f;          // 0 = the whole clip .. 1 = 1/64 of it, around the selection
+    double keptT_ = -10.0;         // when the last keep happened (a main knob turned soon after opens SELECT)
+    enum DropDest { DestLoop = 0, DestKeys = 4, DestKey = 5, DestDrum = 6, DestIn = 7 };
+    int lastDest_ = -1;            // -1 = the armed loop
+    int lastDestNote_ = 60;
+    bool dropPick_ = false;        // hold DROP: the next T pad / key / DRUM key / IN picks the place
+    LiftProcessor::ClipPtr keysAt_, drumAt_;
+    std::array<LiftProcessor::ClipPtr, 128> keyAt_{};
+    int seenPass_ = 0;
+    bool wasRec_ = false;
+    std::vector<float> wavePk_;    // SELECT waveform cache (min / max per pixel)
+    juce::int64 waveKey_ = -1;
+    bool keep(LiftProcessor::ClipPtr c, const juce::String& what);
+    void place(int dest, int note = -1);
+    void paintViewSelect(juce::Graphics& g);
+    void paintSelectBanner(juce::Graphics& g);
     // one history: cables, pins, and (audioOp >= 0) a keep / drop / overdub
     struct HistEntry {
         std::vector<Cord> cords;
         std::array<std::uint8_t, 256> pins{};
-        int audioOp = -1;
+        int audioOp = -1;               // 0 KEEP, 1 DROP, 2 OVERDUB
+        LiftProcessor::ClipPtr prevClip; // KEEP: the clip before; DROP elsewhere: what the place held
+        int dest = -1, note = -1;       // DROP: where
+        int pass = 0, track = 0;        // OVERDUB: pass number and track
+        eng::Selection prevSel;
     };
     std::vector<HistEntry> hist_;
     void pushUndo(int audioOp = -1);
 public:
     void undo();
     int historySize() const { return static_cast<int>(hist_.size()); }
+    const LiftProcessor::ClipPtr& keptClip() const { return clip_; }
+    const eng::Selection& selection() const { return selc_; }
+    bool selectIsOpen() const { return selectOpen_; }
+    int lastDest() const { return lastDest_; }
+    void exportTo(const juce::File& folder);  // standalone: clip, T1-T4, master as 24-bit WAV
 private:
     juce::String info_;
 
@@ -245,6 +279,7 @@ private:
     int loopIn_ = 0;
     int loopOut_ = LiftProcessor::kLoopSeconds * 48000;
     int transpose_ = 0, seqDiv_ = 16, drumDiv_ = 16, drumLen_ = 16, swing_ = 0, recSource_ = 0, character_ = 0;
+    bool cassette_ = false;
     void updateShift();
     void shiftKeyFn(int note);
     void shiftCombo(int fn);

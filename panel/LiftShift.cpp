@@ -223,7 +223,7 @@ void LiftPanel::shiftKeyFn(int note) {
         } else if (idx == 3) {
             act("rev");
         } else if (idx == 4) {
-            proc_.send(Cmd::UndoDrop);
+            undo();  // the one history (cables, pins, keeps, drops, overdubs)
         } else if (idx == 5) {
             if (clearConfirm_ == arm_ && t_ - clearT_ < 2.0) {
                 proc_.send(Cmd::Clear, arm_);
@@ -239,9 +239,18 @@ void LiftPanel::shiftKeyFn(int note) {
             msg = "MARK " + juce::String(nextMark_ + 1) + " AT " + secs(pos);
             nextMark_ = (nextMark_ + 1) % 4;
         } else if (idx == 7) {
-            character_ = (character_ + 1) % kCharacterCount;
+            // the cassette stage: OFF -> character 1 .. N -> OFF
+            if (!cassette_) {
+                cassette_ = true;
+                character_ = 0;
+            } else if (character_ + 1 < kCharacterCount) {
+                ++character_;
+            } else {
+                cassette_ = false;
+            }
             proc_.send(Cmd::Character, character_);
-            msg = "CHARACTER " + juce::String(character_ + 1);
+            proc_.send(Cmd::Cassette, cassette_ ? 1 : 0);
+            msg = cassette_ ? "CASSETTE " + juce::String(character_ + 1) : juce::String("CASSETTE OFF");
         } else {
             proc_.send(Cmd::Jump, 0, 0, static_cast<double>(pos + (idx == 8 ? -kSampleRate : kSampleRate)));
         }
@@ -303,12 +312,10 @@ void LiftPanel::shiftCombo(int fn) {
         flash("HARD STOP");
         markFn(2, 2);
     } else if (fn == 0) {  // LIFT: all tracks
-        proc_.send(Cmd::LiftAll);
-        an_.liftT = t_;
-        flash("LIFTED ALL TRACKS");
+        keep(proc_.keepTracks(), "LIFT ALL TRACKS");
         markFn(2, 3);
-    } else if (fn == 4) {  // DROP: save to a slot
-        openPicker(Picker::Save);
+    } else if (fn == 4) {  // DROP: the fast commit (SHIFT + hold DROP saves to a slot)
+        act("dropnow");
         markFn(2, 4);
     } else if (fn == 7) {  // PLAY: load a slot
         openPicker(Picker::Load);

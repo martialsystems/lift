@@ -522,10 +522,8 @@ void Instrument::runNode(int node, TapeHost& tape, const InstrumentCtl& ctl) noe
             srcL_[s] = synthBuf_[s] + drumL_[s] + clipL_[s];
             srcR_[s] = synthBuf_[s] + drumR_[s] + clipR_[s];
         }
-        fx.setBypass(!ctl.fxOn);
-        fx.process(srcL_, srcR_, kBlock, router.in(C_FXMAC));
-        float* o = router.out(O_FXOUT);
-        for (int s = 0; s < kBlock; ++s) o[s] = 2.5f * (srcL_[s] + srcR_[s]);
+        // the source is recorded dry; the FX insert sits on the bus (N_MIX),
+        // after the loops and the cassette stage (docs/SIGNAL-ORDER.md)
         break;
     }
     case N_MIX: {
@@ -547,6 +545,13 @@ void Instrument::runNode(int node, TapeHost& tape, const InstrumentCtl& ctl) noe
         io.outR = outR_;
         io.send = send_;
         tape.mixBlock(io, kBlock);
+        // FX on the bus: loops (after GRAIN / PULSE / cassette) + the live source
+        fx.setBypass(!ctl.fxOn);
+        fx.process(outL_, outR_, kBlock, router.in(C_FXMAC));
+        {
+            float* o = router.out(O_FXOUT);
+            for (int s = 0; s < kBlock; ++s) o[s] = 2.5f * (outL_[s] + outR_[s]);
+        }
         float* ml = router.out(O_MIXL);
         float* mr = router.out(O_MIXR);
         float* se = router.out(O_SEND);

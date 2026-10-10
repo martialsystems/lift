@@ -335,6 +335,23 @@ void LiftPanel::act(const juce::String& a) {
     const juce::String k = a.upToFirstOccurrenceOf(":", false, false);
     const juce::String arg = a.fromFirstOccurrenceOf(":", false, false);
     const int n = arg.getIntValue();
+    if (dropPick_ && (k == "arm" || k == "mode")) {
+        dropPick_ = false;
+        if (k == "arm") {
+            place(DestLoop + juce::jlimit(0, 3, n));
+        } else if (arg == "in") {
+            place(DestIn);
+        } else if (arg == "synth") {
+            place(DestKeys);
+        } else if (arg == "drum") {
+            place(DestDrum);
+        }
+        return;
+    }
+    dropPick_ = false;
+    if (k == "mode" && selectOpen_) {
+        closeSelect();
+    }
     if (k == "mode") {
         fxEdit_ = false;
         mode_ = static_cast<Mode>(modeFromId(arg));
@@ -376,7 +393,17 @@ void LiftPanel::act(const juce::String& a) {
         sel_[In] = 2;
         bay_ = false;
         say("Radio dial. Encoder 1 picks the station.");
+    } else if (k == "num" && selectOpen_) {
+        selHist_.push_back(selc_);
+        selc_.chop = n + 1;  // keys 1-8 chop the selection
+        flash("CHOP " + juce::String(n + 1));
+        repaint();
+        return;
     } else if (k == "num") {
+        if (mode_ == Synth && keysAt_ != nullptr) {
+            keysAt_ = nullptr;  // picking an engine gives the keys back to the synth
+            proc_.setKeysClip(nullptr);
+        }
         const bool unused = mode_ == Mix || (mode_ == In && INPUTS[n][0] == 0);
         if (unused) {
             say("Keys 1 to 8 do nothing on this screen.");
@@ -398,14 +425,23 @@ void LiftPanel::act(const juce::String& a) {
         proc_.send(Cmd::Mute, n, mutes_[static_cast<size_t>(n)] ? 1 : 0);
         say("Track " + juce::String(n + 1) + (mutes_[static_cast<size_t>(n)] ? " muted." : " unmuted."));
     } else if (k == "lift") {
-        proc_.send(Cmd::Lift);
-        an_.liftT = t_;
-        flash(loop_ ? "LIFTED " + juce::String::fromUTF8("\xc2\xb7") + " LOOP ON T" + juce::String(arm_ + 1)
-                    : "LIFTED " + juce::String::fromUTF8("\xc2\xb7") + " ALL OF T" + juce::String(arm_ + 1));
+        // LIFT keeps what you just heard: the last N s of the capture (LIFT encoder)
+        if (selectOpen_) closeSelect();
+        keep(proc_.keepLast(liftSeconds()), "LIFT " + juce::String(liftSeconds(), 1) + " S");
     } else if (k == "drop") {
-        proc_.send(Cmd::Drop);
-        an_.dropT = t_;
-        flash(juce::String::fromUTF8("DROPPED \xc2\xb7 OVERDUB \xc2\xb7 5 MS FADES"));
+        // DROP: the selection (the default one unless SELECT edited it) to the last place
+        place(lastDest_, lastDestNote_);
+    } else if (k == "dropnow") {
+        // SHIFT+DROP, the fast commit: keep with the default selection and place
+        // straight into the last place used, SELECT skipped
+        if (!selectOpen_) {
+            keep(proc_.keepLast(liftSeconds()), "LIFT");
+        }
+        place(lastDest_, lastDestNote_);
+    } else if (k == "droppick") {
+        dropPick_ = true;
+        flash("DROP TO: T1-T4, A KEY, A DRUM KEY, SYNTH (KEYS) OR IN");
+        hint("DROP: TAP WHERE IT GOES" + juce::String::fromUTF8(" \xc2\xb7 ") + "T PAD = LOOP, KEY = ONE SOUND, DRUM SCREEN KEY = SLICE KIT");
     } else if (k == "loop") {
         loop_ = !loop_;
         sendLoop();
@@ -429,6 +465,9 @@ void LiftPanel::act(const juce::String& a) {
             say("Tape running. Open TAPE to see the reels.");
         }
     } else if (k == "stop") {
+        if (selectOpen_) {
+            closeSelect();
+        }
         playing_ = false;
         rec_ = false;
         rev_ = false;
@@ -442,7 +481,25 @@ void LiftPanel::act(const juce::String& a) {
 }
 
 void LiftPanel::noteOn(int n) {
-    if (mode_ == Drum) {
+    if (dropPick_) {
+        dropPick_ = false;
+        if (mode_ == Drum) {
+            place(DestDrum);
+        } else {
+            place(DestKey, midiOf(n));
+        }
+        return;
+    }
+    if (selectOpen_ && clip_ != nullptr) {
+        proc_.setAudition(eng::cutSelection(*clip_, selc_));  // keys audition the selection
+    } else if (mode_ == Drum && drumAt_ != nullptr) {
+        proc_.send(Cmd::SliceHit, ((n % 24) + 24) % 24, 100);  // the slice kit
+        heldNote_ = n;
+        note_ = n;
+        repaint();
+        return;
+    }
+    if (mode_ == Drum && !selectOpen_) {
         // DRUM: the keys play the kit's voices and pick the one the knobs drive;
         // with REC on and the tape running, the hit is written into the current step
         const int v = eng::drumVoiceForKey(((n % 24) + 24) % 24);
@@ -489,6 +546,16 @@ void LiftPanel::noteOff(int n) {
 }
 
 void LiftPanel::setEnc(int i, float v) {
+    if (!selectOpen_ && !fxEdit_ && clip_ != nullptr && t_ - keptT_ < 3.0) {
+        openSelect(0);  // a knob turned right after a keep opens SELECT on it
+    }
+    if (selectOpen_) {
+        auto& e = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
+        const float d = juce::jlimit(0.f, 1.f, v) - e;
+        e = juce::jlimit(0.f, 1.f, v);  // the knob moves; the screen's engine value does not
+        selectKnob(i, d);
+        return;
+    }
     if (fxEdit_) {
         auto& f = fxKnobs_[static_cast<size_t>(fxType_)][static_cast<size_t>(i)];
         f = juce::jlimit(0.f, 1.f, v);

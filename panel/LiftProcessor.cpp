@@ -1351,6 +1351,7 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     rt.arm = s.arm;
     transport_bind_character(rt, s.character);
     tape_engine_set_character(monitor_, character_row(rt.character));
+    rt.cassette = s.cassette;
     lastBias_ = -1.f;
     appliedArm_ = -1;
     recSource_ = s.recSource;

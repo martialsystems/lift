@@ -43,6 +43,7 @@ struct UiState {
     int swing = 0;
     int recSource = 0;
     int character = 0;
+    bool cassette = false;  // the cassette stage (off: the looper plays clean)
     int color = 1;
     bool stack = false;
     std::vector<Cord> cords;

@@ -11,13 +11,13 @@ namespace lift::eng {
 
 namespace {
 constexpr int kOutNode[kJacks] = {N_KEYS, N_KEYS, N_KEYS, N_KEYS, N_RADIO, N_CLOCK, N_CLOCK, N_DRUMS,
-                                  N_H4,   N_H3,   N_H2,   N_H1,   N_MIX,   N_FX,    N_MIX,   N_MIX};
+                                  N_H4,   N_H3,   N_H2,   N_H1,   N_MIX,   N_MIX /* FX OUT: the FX is on the bus */, N_MIX,   N_MIX};
 constexpr int kRowNode[16] = {N_MOD,  N_MOD,   N_ENV, N_ENV,   N_SH,        N_MOD, N_SLEW, N_KEYS,
                               N_INPUT, N_QUANT, N_KEYS, N_CLOCK, N_KEYS, N_TRANSPORT, N_MOD, N_VCA};
 constexpr int kInNode[kJacks] = {N_SYNTH, N_QUANT, N_SYNTH, N_MIX,   -1 /* REVERSE: armed loop */, N_CLOCK, N_CLOCK, N_VCA,
                                  -1,      N_MIX,   -1,      N_DRUMS, N_INPUT, N_INPUT, N_SH, N_SLEW};
 constexpr int kColNode[16] = {N_SYNTH, -1, N_MIX, -1, N_SYNTH, N_SYNTH, N_SYNTH, N_SYNTH,
-                              N_SYNTH, N_SYNTH, N_SYNTH, N_MIX, N_SYNTH, N_SYNTH, N_FX, N_VCA};
+                              N_SYNTH, N_SYNTH, N_SYNTH, N_MIX, N_SYNTH, N_SYNTH, N_MIX /* FX MAC */, N_VCA};
 
 // In-device order: what each node reads without a cable (normals and the
 // fixed signal path). These are never feedback.

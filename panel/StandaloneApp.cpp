@@ -26,6 +26,8 @@ private:
             saveAs();
         } else if (r == 103) {
             open();
+        } else if (r == 104) {
+            exportWavs();
         } else {
             juce::StandaloneFilterWindow::handleMenuResult(r);
         }
@@ -75,6 +77,20 @@ private:
                                   }
                               });
     }
+    // Export: the current clip (its selection), T1-T4 and the master (the
+    // capture: the last 60 s heard) as 24-bit WAV at 48 kHz into a folder
+    void exportWavs() {
+        stateFolder().createDirectory();
+        chooser_ = std::make_unique<juce::FileChooser>("Export WAVs to a folder", stateFolder());
+        juce::Component::SafePointer<LiftWindow> self(this);
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                              [self](const juce::FileChooser& fc) {
+                                  if (self == nullptr) return;
+                                  const auto f = fc.getResult();
+                                  if (f == juce::File{}) return;
+                                  if (auto* e = self->editor()) e->panel().exportTo(f);
+                              });
+    }
     std::unique_ptr<juce::FileChooser> chooser_;
 
     lift::LiftEditor* editor() {
@@ -102,6 +118,7 @@ private:
         // which is empty in the standalone (no autosave of the tape there)
         m.addItem("Save current state...", act(102));
         m.addItem("Load a saved state...", act(103));
+        m.addItem("Export WAVs (clip, T1-T4, master)...", act(104));
         m.addSeparator();
         m.addItem("Reset to default state", act(4));
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(button));

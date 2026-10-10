@@ -226,7 +226,9 @@ void runKnobChecks(const Check& check) {
     }
     {
         // BIAS is a record setting: heard on the live monitor (the record
-        // electronics) and on what gets recorded
+        // electronics) and on what gets recorded; it belongs to the cassette
+        // stage, which is off by default (the looper plays clean)
+        r.p.send(lift::Cmd::Cassette, 1);
         r.p.send(lift::Cmd::NoteOn, 57, 100);
         r.run(0.3);
         const auto base = r.run(1.0);
@@ -241,6 +243,7 @@ void runKnobChecks(const Check& check) {
         check(specDist(sa, sb) > 0.2 || std::abs(std::log(centroid(sb) / centroid(sa))) > 0.15,
               "TAPE BIAS (mouse) audibly changes the tape sound (brightness)");
         r.turn(1, 99.f * 0.45f / 0.45f, 0.1);
+        r.p.send(lift::Cmd::Cassette, 0);
     }
     {
         // REC LVL: the live monitor runs through the record electronics (a hard-played note)

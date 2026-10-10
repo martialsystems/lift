@@ -52,6 +52,7 @@ UiState LiftPanel::captureUi() const {
     s.swing = swing_;
     s.recSource = recSource_;
     s.character = character_;
+    s.cassette = cassette_;
     s.color = color_;
     s.stack = stack_;
     s.cords = cords_;
@@ -87,6 +88,7 @@ void LiftPanel::applyUi(const UiState& s) {
     swing_ = s.swing;
     recSource_ = s.recSource;
     character_ = s.character;
+    cassette_ = s.cassette;
     color_ = s.color;
     stack_ = s.stack;
     cords_ = s.cords;
