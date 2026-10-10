@@ -21,4 +21,8 @@ LIFT changes to the vendored copy (kept small, marked "LIFT" in the source):
 - `shogun/voices/cp.h`: `CpVoice::setShape(gap, burst)` makes the clap's burst
   spacing and burst decay settable (SHOGUN fixes them at 11 ms / 3 ms); the
   909 kit uses 7.5 ms / 2.2 ms for its tight clap.
+- `shogun/voices/bd2.h`: `Bd2Voice::setBendTau(s)` (SHOGUN: 80 ms); the 909 kick
+  drops its pitch with 40 ms.
+- `shogun/voices/toms.h`: `TomVoice::setShift(oct)` transposes the tom range
+  (the 909 toms sit lower, -0.6 oct).
 - jidai-common's `dsp/Halfband.h` is also used by the DRIVE effect's 2x oversampling.
