@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (c) 2026 Martial Systems LLC. All rights reserved.
 """Rasterize the LIFT SVG art into the bitmaps the plug-in embeds.
 

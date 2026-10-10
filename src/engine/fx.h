@@ -6,14 +6,16 @@
 // textbook structures named below; no third-party code. Framework free, real
 // time safe after prepare().
 //
-//   SPRING  digital spring tank: three springs, each a feedback loop with a
+// On screen the three are DRIP, SPACE and ECHO (the approved effect names).
+//
+//   DRIP    the spring reverb, a digital spring tank: three springs, each a feedback loop with a
 //           cascade of stretched first-order allpasses (the low "chirp"), a
 //           short plain allpass loop (the bright high chirp), a pre-echo tap
 //           (the drip), and a transient detector that shakes the tank (the
 //           boing). After the parametric spring structure of Valimaki, Parker
 //           and Abel (JAES 2010) and Parker's dispersion filters (2011).
 //           Knobs: TONE, DECAY, TENSION, MIX.
-//   PLATE   plate / hall: figure-of-eight tank after Dattorro (JAES 1997).
+//   SPACE   plate / hall reverb (separate from the spring): figure-of-eight tank after Dattorro (JAES 1997).
 //           Knobs: SIZE, DECAY, TONE, MIX.
 //   ECHO    tape echo: one head, darkening, saturating feedback, wow.
 //           Knobs: TIME, FEEDBACK, TONE, MIX.
@@ -46,7 +48,7 @@ public:
     void process(float* L, float* R, int n, const float* mac) noexcept;
     float shake() const noexcept;  // spring tank motion, for tests / the screen
 
-    struct Spring;
+    struct SpringTank;
     struct Plate;
     struct Echo;
 
@@ -57,7 +59,7 @@ private:
     float p_[4] = {0.5f, 0.5f, 0.5f, 0.35f};
     float wet_ = 0.f;      // bypass crossfade, 0..1
     float macPrev_ = 0.f;
-    std::unique_ptr<Spring> spring_;
+    std::unique_ptr<SpringTank> spring_;
     std::unique_ptr<Plate> plate_;
     std::unique_ptr<Echo> echo_;
 };

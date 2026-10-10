@@ -381,4 +381,91 @@ void runKnobChecks(const Check& check) {
         std::printf("  IN GAIN -> %.2f: %+.1f dB\n", r.value(4, 2), db(rms(lo.l), rms(base.l)));
         check(db(rms(lo.l), rms(base.l)) < -20.0, "IN GAIN (mouse) sets the input level");
     }
+
+    // ---- DRUM / FX from the panel (mouse), heard through the instrument
+    std::printf("-- drums and effects from the panel\n");
+    r.turn(2, 120.f, 0.1);  // IN GAIN back up (the IN test left it at 0)
+    r.panel->act("stop");
+    r.run(0.3);
+    r.panel->act("mode:drum");
+    r.run(0.1);
+    {
+        // SLICE picks the voice the knobs drive
+        r.turn(0, 60.f, 0.1);
+        const int v = r.p.drumVoice.load();
+        check(v > 0, juce::String("DRUM SLICE (mouse) selects a voice: ") + lift::eng::kDrumVoiceNames[v]);
+        // back to the kick
+        r.turn(0, -200.f, 0.1);
+        check(r.p.drumVoice.load() == 0, "DRUM SLICE back to the kick");
+        // click two step cells on the DRUM screen: the kick plays on them
+        const float sc = 600.f / 720.f;
+        auto cell = [&](int i) {
+            return juce::Point<float>(lift::ui::kDevX + 60.f + (24.f + static_cast<float>(i) * 42.4f + 18.f) * sc,
+                                      lift::ui::kDevY + 256.f + 32.f + (324.f - 319.f * sc) * 0.5f + (40.f + 160.f) * sc);
+        };
+        const uint32_t before = r.p.drumPattern[0].load();
+        for (int i : {1, 3}) {
+            const auto c = cell(i);
+            r.panel->mouseDown(r.ev(c, c, false, true));
+            r.panel->mouseUp(r.ev(c, c, false, false));
+        }
+        r.run(0.05);
+        const uint32_t after = r.p.drumPattern[0].load();
+        check((before ^ after) == ((1u << 1) | (1u << 3)), "clicking DRUM steps 2 and 4 toggles them for the kick");
+        // the pattern plays with the transport: the kick's steps sound
+        r.panel->act("play");
+        r.run(0.2);
+        r.p.uiDrumHits.store(0);
+        const auto beat = r.run(2.0);
+        r.panel->act("stop");
+        r.run(0.5);
+        check(rms(beat.l) > 0.02 && (r.p.uiDrumHits.load() & 1u), "the edited pattern plays the kick with the transport");
+        // DECAY knob on the kick: long vs short tail on a single hit
+        auto hitTail = [&] {
+            r.p.send(lift::Cmd::DrumHit, 0, 120);
+            const auto a = r.run(1.0);
+            return rms(a.l, static_cast<size_t>(0.25 * 48000), static_cast<size_t>(0.9 * 48000));
+        };
+        r.run(0.5);
+        r.turn(3, -150.f, 0.1);
+        r.run(0.2);
+        const double shortT = hitTail();
+        r.turn(3, 150.f, 0.1);
+        r.run(0.2);
+        const double longT = hitTail();
+        std::printf("  kick DECAY low -> high: tail %.1f dB -> %.1f dB\n", 20.0 * std::log10(shortT + 1e-9),
+                    20.0 * std::log10(longT + 1e-9));
+        check(longT > 4.0 * shortT, "DRUM DECAY (mouse) lengthens the selected voice");
+    }
+    {
+        // FX: SHIFT + FX cycles the effect, holding FX makes the knobs edit it
+        const int t0 = r.p.uiState().fxType;
+        r.panel->act("fxtype");
+        r.run(0.05);
+        check(r.p.uiState().fxType == (t0 + 1) % lift::eng::kFxTypes, "SHIFT + FX selects the next effect");
+        while (r.p.uiState().fxType != lift::eng::FX_SPRING) {
+            r.panel->act("fxtype");
+            r.run(0.05);
+        }
+        r.panel->act("fxedit");
+        const float m0 = r.p.fxKnobs[3].load();
+        r.turn(3, 120.f, 0.1);  // MIX up
+        check(r.p.fxKnobs[3].load() > m0 + 0.3f, "FX edit: knob 4 sets the spring's MIX");
+        r.panel->act("fx");  // done
+        // the spring is heard on a drum hit: wet tail vs bypassed
+        auto tail = [&] {
+            r.p.send(lift::Cmd::DrumHit, 4, 120);  // clap
+            const auto a = r.run(1.5);
+            return rms(a.l, static_cast<size_t>(0.6 * 48000), static_cast<size_t>(1.4 * 48000));
+        };
+        r.run(0.5);
+        const double wet = tail();
+        r.panel->act("fx");  // bypass
+        r.run(0.5);
+        const double dry = tail();
+        r.panel->act("fx");
+        std::printf("  SPRING tail after a clap: %.1f dB on, %.1f dB bypassed\n", 20.0 * std::log10(wet + 1e-9),
+                    20.0 * std::log10(dry + 1e-9));
+        check(wet > 4.0 * dry, "the spring reverb is on the FX pad (tail on, none when bypassed)");
+    }
 }

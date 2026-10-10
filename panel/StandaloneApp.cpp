@@ -21,6 +21,62 @@ public:
     using juce::StandaloneFilterWindow::StandaloneFilterWindow;
 
 private:
+    void handleMenuResult(int r) {
+        if (r == 102) {
+            saveAs();
+        } else if (r == 103) {
+            open();
+        } else {
+            juce::StandaloneFilterWindow::handleMenuResult(r);
+        }
+    }
+    lift::LiftProcessor* proc() {
+        auto* h = getPluginHolder();
+        return h != nullptr ? dynamic_cast<lift::LiftProcessor*>(h->processor.get()) : nullptr;
+    }
+    static juce::File stateFolder() {
+        return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("LIFT");
+    }
+    void saveAs() {
+        stateFolder().createDirectory();
+        chooser_ = std::make_unique<juce::FileChooser>("Save LIFT state", stateFolder().getChildFile("LIFT.lift"), "*.lift");
+        juce::Component::SafePointer<LiftWindow> self(this);
+        chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
+                                  juce::FileBrowserComponent::warnAboutOverwriting,
+                              [self](const juce::FileChooser& fc) {
+                                  if (self == nullptr) return;
+                                  auto f = fc.getResult();
+                                  auto* p = self->proc();
+                                  if (f == juce::File{} || p == nullptr) return;
+                                  if (!f.hasFileExtension("lift")) f = f.withFileExtension("lift");
+                                  // the state is snapshotted here; the file writes on a background thread
+                                  p->saveStateToFileAsync(f, [f](bool ok) {
+                                      if (!ok) {
+                                          juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "LIFT",
+                                                                                 "Could not write " + f.getFullPathName());
+                                      }
+                                  });
+                              });
+    }
+    void open() {
+        chooser_ = std::make_unique<juce::FileChooser>("Load LIFT state", stateFolder(), "*.lift");
+        juce::Component::SafePointer<LiftWindow> self(this);
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [self](const juce::FileChooser& fc) {
+                                  if (self == nullptr) return;
+                                  const auto f = fc.getResult();
+                                  auto* p = self->proc();
+                                  if (!f.existsAsFile() || p == nullptr) return;
+                                  juce::MemoryBlock blob;
+                                  const bool read = f.loadFileAsData(blob);
+                                  if (!read || p->loadState(blob.getData(), blob.getSize(), 0) != lift::LiftProcessor::LoadResult::Ok) {
+                                      juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "LIFT",
+                                                                             f.getFileName() + " is not a LIFT state this version can load.");
+                                  }
+                              });
+    }
+    std::unique_ptr<juce::FileChooser> chooser_;
+
     lift::LiftEditor* editor() {
         auto* h = getPluginHolder();
         return h != nullptr && h->processor != nullptr ? dynamic_cast<lift::LiftEditor*>(h->processor->getActiveEditor())
@@ -42,8 +98,10 @@ private:
             e->addSizeItems(m);
             m.addSeparator();
         }
-        m.addItem("Save current state...", act(2));
-        m.addItem("Load a saved state...", act(3));
+        // LIFT's own save / load: the stock items write getStateInformation,
+        // which is empty in the standalone (no autosave of the tape there)
+        m.addItem("Save current state...", act(102));
+        m.addItem("Load a saved state...", act(103));
         m.addSeparator();
         m.addItem("Reset to default state", act(4));
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(button));

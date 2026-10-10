@@ -22,6 +22,7 @@
 int runUiBench(float backingScale);
 void runStateChecks(const std::function<void(bool, const juce::String&)>& check);
 void runKnobChecks(const std::function<void(bool, const juce::String&)>& check);
+int runDemoRenders(const juce::String& dir, const std::function<void(bool, const juce::String&)>& check);
 
 namespace {
 
@@ -263,6 +264,14 @@ int main(int argc, char** argv) {
     const juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile(base).getChildFile("ui");
     dir.createDirectory();
 
+    if (argc > 2 && juce::String(argv[1]) == "--demo") {
+        int bad = 0;
+        runDemoRenders(argv[2], [&](bool ok, const juce::String& what) {
+            std::printf("[%s] %s\n", ok ? "PASS" : "FAIL", what.toRawUTF8());
+            bad += ok ? 0 : 1;
+        });
+        return bad == 0 ? 0 : 1;
+    }
     if (argc > 1 && juce::String(argv[1]) == "--ui-bench") {
         return runUiBench(argc > 2 ? juce::String(argv[2]).getFloatValue() : 2.f);
     }

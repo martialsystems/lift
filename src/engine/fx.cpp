@@ -8,7 +8,8 @@
 
 namespace lift::eng {
 
-const char* const kFxNames[kFxTypes] = {"SPRING", "PLATE", "ECHO"};
+// product names (lift_laws approved effects): DRIP = the spring reverb, SPACE = the plate, ECHO = tape echo
+const char* const kFxNames[kFxTypes] = {"DRIP", "SPACE", "ECHO"};
 const char* const kFxKnobNames[kFxTypes][4] = {
     {"TONE", "DECAY", "TENSION", "MIX"}, {"SIZE", "DECAY", "TONE", "MIX"}, {"TIME", "FEEDBACK", "TONE", "MIX"}};
 const float kFxDefaults[kFxTypes][4] = {{0.55f, 0.5f, 0.5f, 0.4f}, {0.6f, 0.55f, 0.5f, 0.3f}, {0.45f, 0.45f, 0.5f, 0.3f}};
@@ -68,7 +69,7 @@ struct Allpass {
 
 // ---------------------------------------------------------------- SPRING
 
-struct FxRack::Spring {
+struct FxRack::SpringTank {
     static constexpr int kSprings = 3;
     static constexpr int kStagesLf = 64;   // stretched allpasses in each low-chirp loop
     static constexpr int kStagesHf = 24;   // plain allpasses in each high-chirp loop
@@ -370,7 +371,7 @@ struct FxRack::Echo {
 // ---------------------------------------------------------------- rack
 
 FxRack::FxRack()
-    : spring_(std::make_unique<Spring>()), plate_(std::make_unique<Plate>()), echo_(std::make_unique<Echo>()) {}
+    : spring_(std::make_unique<SpringTank>()), plate_(std::make_unique<Plate>()), echo_(std::make_unique<Echo>()) {}
 FxRack::~FxRack() = default;
 
 void FxRack::prepare(double fs) {

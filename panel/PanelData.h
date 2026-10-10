@@ -69,7 +69,8 @@ inline const EngineDef ENGINES[8] = {
     {"SWARM", "DETUNED SINES \xc2\xb7 ONE AMP ENVELOPE", {"SPREAD", "DENSITY", "ATTACK", "RELEASE"}},
     {"SPOOL", "ONE FILE \xc2\xb7 SLICED OR ROOT-MAPPED", {"START", "LENGTH", "PITCH", "DECAY"}},
     {"SPARE", "EMPTY IN THIS VERSION", {"\xe2\x80\x94", "\xe2\x80\x94", "\xe2\x80\x94", "\xe2\x80\x94"}}};
-inline const char* const KITS[8] = {"TAP", "KIT 2", "KIT 3", "KIT 4", "KIT 5", "KIT 6", "KIT 7", "KIT 8"};
+// kit names = the drum engine's (src/engine/drums.cpp): 808 / 909 tunings and pattern variants
+inline const char* const KITS[8] = {"808", "909", "808 B", "909 B", "808 C", "909 C", "808 D", "909 D"};
 inline const char* const INPUTS[8] = {"LINE", "MIC", "RADIO", "RESAMPLE", "", "", "", ""};
 inline const char* const MODE_MACROS[5][4] = {{"", "", "", ""},
                                               {"SLICE", "PITCH", "CHOKE", "DECAY"},
