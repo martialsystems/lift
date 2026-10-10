@@ -16,15 +16,25 @@ struct CpVoice : Voice {
   double aBurst = 0.0, attack = 0.5, fB = 600.0, lastBp = 0.0, lastNz = 0.0, last = 0.0;
   long n = 0, gap = 528, tailAt = -1;
   int count = 5, sound = 0, nextBurst = kMaxBursts;
+  double gapSec = 0.011, burstSec = 0.003;  // LIFT: settable burst spacing / burst decay (setShape)
 
   void prepare(double fs, double fsE) override {
     Voice::prepare(fs, fsE);
-    aBurst = rcCoef(0.003, fsE);
-    gap = std::lround(0.011 * fsE);
+    aBurst = rcCoef(burstSec, fsE);
+    gap = std::lround(gapSec * fsE);
     tailHp.set(300.0, fsE);
     et.setAttack(0.0002, fsE);
     rng.seed(voiceSeed(CP));
     reset();
+  }
+  // LIFT addition: burst spacing and each burst's decay, seconds (SHOGUN: 11 ms, 3 ms).
+  void setShape(double gapS, double burstS) {
+    gapSec = gapS;
+    burstSec = burstS;
+    if (fsE_ > 0.0) {
+      aBurst = rcCoef(burstSec, fsE_);
+      gap = std::max(1L, std::lround(gapSec * fsE_));
+    }
   }
   void reset() override {
     bp.reset();

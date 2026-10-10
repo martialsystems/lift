@@ -157,7 +157,7 @@ private:
     Mode mode_ = Tape;
     std::array<int, 5> sel_{{0, 0, 0, 0, 2}};
     std::array<std::array<float, 4>, 5> enc_{};
-    bool bay_ = false, fx_ = true, playing_ = false, rec_ = false, rev_ = false, loop_ = true, shift_ = false;
+    bool bay_ = false, fx_ = false, playing_ = false, rec_ = false, rev_ = false, loop_ = true, shift_ = false;
     int arm_ = 0;
     std::array<bool, 4> mutes_{{false, false, true, false}};
     int oct_ = 0;

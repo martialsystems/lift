@@ -64,10 +64,10 @@ const P k808[] = {
     {P_CB_TUNE, 0.42f}, {P_CB_DECAY, 0.455f}, {P_CB_LEVEL, 0.55f},
     {P_CH_TUNE, 0.50f}, {P_CH_DECAY, 0.074f}, {P_CH_LEVEL, 0.70f}, {P_CH_CHOKE, 0.3f},
     {P_OH_DECAY, 0.517f}, {P_OH_LEVEL, 0.62f}, {P_OH_CHOKE, 0.3f},
-    {P_CY_TUNE, 0.5f}, {P_CY_TONE, 0.55f}, {P_CY_DECAY, 0.759f}, {P_CY_LEVEL, 0.55f},
-    {P_LTC_TUNE, 0.35f}, {P_LTC_DECAY, 0.518f}, {P_LTC_LEVEL, 0.62f},
-    {P_MTC_TUNE, 0.45f}, {P_MTC_DECAY, 0.487f}, {P_MTC_LEVEL, 0.62f},
-    {P_HTC_TUNE, 0.55f}, {P_HTC_DECAY, 0.449f}, {P_HTC_LEVEL, 0.62f},
+    {P_CY_TUNE, 0.5f}, {P_CY_TONE, 0.55f}, {P_CY_DECAY, 0.68f}, {P_CY_LEVEL, 0.55f},
+    {P_LTC_TUNE, 0.35f}, {P_LTC_DECAY, 0.48f}, {P_LTC_LEVEL, 0.62f},
+    {P_MTC_TUNE, 0.45f}, {P_MTC_DECAY, 0.45f}, {P_MTC_LEVEL, 0.62f},
+    {P_HTC_TUNE, 0.55f}, {P_HTC_DECAY, 0.42f}, {P_HTC_LEVEL, 0.62f},
     {P_CH_PAN, 0.42f}, {P_OH_PAN, 0.42f}, {P_CY_PAN, 0.6f}, {P_CB_PAN, 0.58f}, {P_CL_PAN, 0.62f},
     {P_LTC_PAN, 0.38f}, {P_MTC_PAN, 0.5f}, {P_HTC_PAN, 0.62f},
 };
@@ -79,7 +79,7 @@ const P k909[] = {
     {P_SD_TUNE, 0.58f}, {P_SD_DETUNE, 0.66f}, {P_SD_PITCH, 0.28f}, {P_SD_TONE, 0.55f}, {P_SD_SNAPPY, 0.78f},
     {P_SD_TDECAY, 0.256f}, {P_SD_SNDEC, 0.376f}, {P_SD_LEVEL, 0.70f},
     {P_RS_TUNE, 0.55f}, {P_RS_LEVEL, 0.60f},
-    {P_CP_ATTACK, 0.6f}, {P_CP_COUNT, 0.30f}, {P_CP_FILTER, 0.60f}, {P_CP_DECAY, 0.330f}, {P_CP_LEVEL, 0.74f},
+    {P_CP_ATTACK, 0.6f}, {P_CP_COUNT, 0.40f}, {P_CP_FILTER, 0.62f}, {P_CP_DECAY, 0.262f}, {P_CP_LEVEL, 0.74f},
     {P_CL_TUNE, 0.55f}, {P_CL_DECAY, 0.014f}, {P_CL_LEVEL, 0.55f},
     {P_MA_DECAY, 0.040f}, {P_MA_LEVEL, 0.60f},
     {P_CB_TUNE, 0.50f}, {P_CB_DECAY, 0.417f}, {P_CB_LEVEL, 0.50f},
@@ -183,6 +183,12 @@ void Drums::setKit(int kit) noexcept {
     const KitDef& d = kKitDefs[kit_];
     for (int i = 0; i < d.n; ++i) {
         e_->setParamNow(d.p[i].id, d.p[i].u);
+    }
+    // the 909 clap: quicker, snappier bursts than the 808's
+    if (kit_ % 2 == 1) {
+        e_->cp().setShape(0.0075, 0.0022);
+    } else {
+        e_->cp().setShape(0.0105, 0.003);
     }
     for (int v = 0; v < kDrumVoices; ++v) {
         applyVoice(v, true);

@@ -17,7 +17,7 @@ const char* const kFxKnobNames[kFxTypes][4] = {
     {"RATE", "DEPTH", "FLANGE", "MIX"},   {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"CUTOFF", "RESO", "MODE", "MIX"},
     {"DRIVE", "TONE", "BIAS", "MIX"},     {"BITS", "RATE", "TONE", "MIX"},      {"AMOUNT", "ATTACK", "RELEASE", "MIX"}};
 const float kFxDefaults[kFxTypes][4] = {
-    {0.55f, 0.5f, 0.5f, 0.4f}, {0.6f, 0.55f, 0.5f, 0.3f},  {0.45f, 0.45f, 0.5f, 0.3f},
+    {0.55f, 0.4f, 0.5f, 0.25f}, {0.6f, 0.55f, 0.5f, 0.3f},  {0.45f, 0.45f, 0.5f, 0.3f},
     {0.3f, 0.45f, 0.f, 0.5f},  {0.25f, 0.6f, 0.45f, 0.5f}, {0.55f, 0.35f, 0.f, 1.f},
     {0.45f, 0.5f, 0.3f, 1.f},  {0.5f, 0.5f, 0.6f, 1.f},    {0.5f, 0.3f, 0.4f, 1.f}};
 

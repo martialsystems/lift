@@ -118,7 +118,7 @@ public:
     std::atomic<int> drumKit{0};
     std::atomic<int> synthEngine{0};   // eng::SynthEngine
     std::atomic<int> drumVoice{0};     // the voice the DRUM knobs (and the SLICE jack) play
-    std::atomic<bool> fxOn{true};      // the FX pad: insert on / bypassed
+    std::atomic<bool> fxOn{false};      // the FX pad: insert on / bypassed
     std::atomic<int> transposeSemis{0};
     // DRUM patterns: [kit * 14 + voice], bit s = step s (32 steps). The panel
     // writes them, the sequencer reads them (no locks).

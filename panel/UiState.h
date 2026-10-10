@@ -25,7 +25,7 @@ struct UiState {
 
     int mode = 2;  // 0 SYNTH, 1 DRUM, 2 TAPE, 3 MIX, 4 IN
     bool bay = false;
-    bool fx = true;
+    bool fx = false;  // init is dry: the FX pad starts bypassed
     std::array<int, 5> sel{{0, 0, 0, 0, 2}};
     std::array<std::array<float, 4>, 5> enc{};
     bool loop = true;

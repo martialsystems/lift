@@ -112,15 +112,13 @@ int runDemoRenders(const juce::String& dirName, const std::function<void(bool, c
         std::printf("  %s: %.1f s, peak %.2f\n", name, t.l.size() / 48000.0, peak(t));
         check(ok, juce::String("demo ") + name + " rendered (finite, audible)");
     };
-    // 1-2: the kits on their own patterns, through the tape's monitor electronics, a touch of spring
+    // 1-2: the kits on their own patterns, through the tape's monitor electronics, dry (FX bypassed)
     for (int kit = 0; kit < 2; ++kit) {
         Demo d;
         d.p->tempoBpm.store(kit == 0 ? 96.0 : 126.0);
         d.state([&](lift::UiState& s) {
             s.sel[1] = kit;
-            s.fx = true;
-            s.fxType = lift::eng::FX_SPRING;
-            s.fxKnobs[0] = {0.5f, 0.35f, 0.5f, 0.18f};
+            s.fx = false;
         });
         d.p->send(lift::Cmd::Transport, 1, 0);
         save(kit == 0 ? "808-beat.wav" : "909-beat.wav", d.run(10.0));
