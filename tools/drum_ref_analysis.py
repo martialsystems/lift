@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Copyright (c) 2026 Martial Systems LLC. All rights reserved.
 """Compare LIFT's synthesized 808/909 voices with reference one-shots.
 
