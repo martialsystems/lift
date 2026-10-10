@@ -26,7 +26,11 @@ struct WindowSizes {
         o.applicationName = "LIFT";
         o.filenameSuffix = ".ui.settings";
         o.osxLibrarySubFolder = "Application Support";
+#if JUCE_LINUX || JUCE_BSD
+        o.folderName = "~/.config/LIFT";
+#else
         o.folderName = "LIFT";
+#endif
         return o;
     }
 

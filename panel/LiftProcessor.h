@@ -10,6 +10,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <array>
+#include <functional>
 #include <atomic>
 #include <memory>
 
@@ -170,6 +171,9 @@ public:
 
     enum class LoadResult { Ok, Empty, BadSlot, BadData, NewerVersion };
     bool saveSlot(int slot);
+    // The same, with the file written on a background thread so the message
+    // thread never waits on the disk; `done` runs on the message thread.
+    void saveSlotAsync(int slot, std::function<void(bool)> done);
     LoadResult loadSlot(int slot);
     bool reopenLast();                  // load the slot saved or loaded last
     int currentSlot() const noexcept { return currentSlot_; }
@@ -292,6 +296,8 @@ private:
     Listener* listener_ = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LiftProcessor)
+    // last member: destroyed first, so a save in flight finishes while the rest is alive
+    juce::ThreadPool io_{1};
 };
 
 }  // namespace lift

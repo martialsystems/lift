@@ -184,7 +184,14 @@ void LiftPanel::pickConfirm() {
     typed_.clear();
     if (p == Picker::Save) {
         pushUi();
-        flash(proc_.saveSlot(pickSlot_) ? "SAVED SLOT " + slotName(pickSlot_) : "SAVE FAILED");
+        juce::Component::SafePointer<LiftPanel> self(this);
+        const int slot = pickSlot_;
+        proc_.saveSlotAsync(slot, [self, slot](bool ok) {
+            if (self != nullptr) {
+                self->flash(ok ? "SAVED SLOT " + slotName(slot) : "SAVE FAILED");
+                self->repaint();
+            }
+        });
     } else if (p == Picker::Load) {
         const auto r = proc_.loadSlot(pickSlot_);
         if (r == LiftProcessor::LoadResult::Empty) {

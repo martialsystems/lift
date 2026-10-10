@@ -1159,6 +1159,28 @@ bool LiftProcessor::saveSlot(int slot) {
     return true;
 }
 
+void LiftProcessor::saveSlotAsync(int slot, std::function<void(bool)> done) {
+    if (!SlotStore::valid(slot)) {
+        if (done) {
+            done(false);
+        }
+        return;
+    }
+    // the snapshot is taken here (the tape must not move under it); only the
+    // disk write goes to the background
+    auto blob = std::make_shared<juce::MemoryBlock>(saveState());
+    currentSlot_ = slot;
+    const SlotStore* store = &slots_;
+    io_.addJob([store, slot, blob, done = std::move(done)] {
+        const bool ok = store->write(slot, *blob) && store->setLastSlot(slot);
+        juce::MessageManager::callAsync([done, ok] {
+            if (done) {
+                done(ok);
+            }
+        });
+    });
+}
+
 LiftProcessor::LoadResult LiftProcessor::loadSlot(int slot) {
     if (!SlotStore::valid(slot)) {
         return LoadResult::BadSlot;
