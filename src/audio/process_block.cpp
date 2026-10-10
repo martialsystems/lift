@@ -8,6 +8,9 @@ namespace {
 
 constexpr int kChunk = kTapeMaxBlock;
 constexpr int kRecMask = kRecIdxRing - 1;
+// one-pole coefficients at the tape rate (48 kHz): 1 - exp(-2 pi f / fs)
+constexpr float kEqLoA = 0.0322f;  // 250 Hz
+constexpr float kEqHiA = 0.4076f;  // 4 kHz
 
 float metronome_tick(TapeRuntime& rt) noexcept {
     if (!rt.metronome || rt.metroPeriod <= 0) {
@@ -85,8 +88,21 @@ void process_chunk(TapeRuntime& rt, const float* inL, const float* inR, float* o
             if (bufL == nullptr || bufR == nullptr) {
                 continue;
             }
-            sumL += read_looped(bufL, rt.frames, rt.pos, rt.loopStart, rt.loopEnd, rt.reverse) * rt.fader[t];
-            sumR += read_looped(bufR, rt.frames, rt.pos, rt.loopStart, rt.loopEnd, rt.reverse) * rt.fader[t];
+            float xl = read_looped(bufL, rt.frames, rt.pos, rt.loopStart, rt.loopEnd, rt.reverse) * rt.fader[t];
+            float xr = read_looped(bufR, rt.frames, rt.pos, rt.loopStart, rt.loopEnd, rt.reverse) * rt.fader[t];
+            if (rt.lowG[t] != 0.f || rt.highG[t] != 0.f) {
+                // shelves: x + lowG * lowpass(x) + highG * (x - lowpass4k(x))
+                float* lo = rt.eqLo[t];
+                float* hi = rt.eqHi[t];
+                lo[0] += kEqLoA * (xl - lo[0]);
+                lo[1] += kEqLoA * (xr - lo[1]);
+                hi[0] += kEqHiA * (xl - hi[0]);
+                hi[1] += kEqHiA * (xr - hi[1]);
+                xl += rt.lowG[t] * lo[0] + rt.highG[t] * (xl - hi[0]);
+                xr += rt.lowG[t] * lo[1] + rt.highG[t] * (xr - hi[1]);
+            }
+            sumL += xl * rt.panL[t];
+            sumR += xr * rt.panR[t];
         }
         // Every track shares the heads and the tape path, so the playback
         // chain runs once on the mix.

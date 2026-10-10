@@ -17,6 +17,14 @@ struct TapeRuntime {
     bool reverse;
     bool mute[kTrackCount];
     float fader[kTrackCount];
+    // Per-track mix (the MIX screen): balance gains, and low / high shelf
+    // gains as linear deltas (0 = flat) on one-pole splits at 250 Hz / 4 kHz.
+    float panL[kTrackCount];
+    float panR[kTrackCount];
+    float lowG[kTrackCount];
+    float highG[kTrackCount];
+    float eqLo[kTrackCount][2];
+    float eqHi[kTrackCount][2];
     int arm;
     int loopStart;
     int loopEnd;

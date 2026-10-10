@@ -3,6 +3,7 @@
 #pragma once
 
 #include "PatchBay.h"
+#include "KnobSmoother.h"
 #include "SlotStore.h"
 #include "UiState.h"
 
@@ -13,8 +14,23 @@
 #include <memory>
 
 struct TapeRuntime;
+#include "tape/engine.h"
 
 namespace lift {
+
+// Paint-time accounting for the UI bench (tests/ui_bench.cpp): total ms spent
+// in the panel's paint calls. Costs one clock read per paint.
+inline std::atomic<double>& paintStatsMs() noexcept {
+    static std::atomic<double> ms{0.0};
+    return ms;
+}
+struct ScopedPaintStats {
+    double t0 = juce::Time::getMillisecondCounterHiRes();
+    ~ScopedPaintStats() {
+        const double d = juce::Time::getMillisecondCounterHiRes() - t0;
+        paintStatsMs().store(paintStatsMs().load(std::memory_order_relaxed) + d, std::memory_order_relaxed);
+    }
+};
 
 // Commands from the panel (message thread) to the audio thread. Single
 // producer, single consumer, fixed size: no locks, no allocation.
@@ -54,6 +70,11 @@ struct PlaceholderVoice {
     float vel = 0.8f;
     float bend = 0.f;   // semitones
     float mod = 0.f;    // 0..1 vibrato depth (CC1)
+    // The SYNTH screen's four knobs (smoothed, 0..1), the same for every
+    // engine on this placeholder: 0 detune / timbre, 1 filter cutoff,
+    // 2 filter envelope amount (centre = none), 3 decay / release.
+    float macro[4] = {0.35f, 0.62f, 0.48f, 0.55f};
+    float fenv = 0.f;   // filter envelope
     bool gate = false;
     bool sustain = false;
     int note = -1;
@@ -123,6 +144,14 @@ public:
     std::atomic<int> synthEngine{0};   // the placeholder voice plays for every engine
     // TAPE knobs (SPEED, BIAS, REC LVL) -> the engine atomics above.
     void setTapeKnobs(const std::array<float, 4>& tape) noexcept;
+    // Every screen knob, screen * 4 + knob (0..1). The audio thread follows
+    // them with per-control smoothing (KnobSmoother, 20 ms): TAPE SPEED /
+    // BIAS / REC LVL / SCRUB, SYNTH macros, MIX level / pan / low / high of
+    // the armed track, IN gain. The panel sets them as they turn.
+    std::atomic<float> knobs[20];
+    void setKnobValue(int screen, int k, float v) noexcept;
+    void setAllKnobs(const std::array<std::array<float, 4>, 5>& enc) noexcept;
+    static constexpr double kScrubSeconds = 4.0;  // a full SCRUB sweep moves this much tape
 
     // ---- saved state (message thread) ----
     // The panel's state. The panel pushes its changes here; loads, MIDI knob
@@ -218,6 +247,21 @@ private:
     int recSource_ = 0;
     float lastBias_ = -1.f;
     float lastDrive_ = -1.f;
+    // knob smoothing and what it drives (audio thread)
+    void stepKnobs(int n) noexcept;
+    void renderSub(float* outL, float* outR, int off, int m) noexcept;
+    KnobSmoother sm_[20];
+    float appliedMix_[4] = {-1.f, -1.f, -1.f, -1.f};
+    int appliedArm_ = -1;
+    float inGain_ = 1.f, inGainPrev_ = 1.f;
+    // input monitor through the record electronics (drive, bias), so REC LVL
+    // and BIAS are heard while playing, as on a deck's source monitor
+    TapeEngine monitor_;
+    juce::HeapBlock<float> monL_, monR_;
+    // SCRUB: knob movement becomes tape movement with a little reel inertia
+    float scrubPrev_ = -1.f;
+    double scrubPending_ = 0.0;   // frames still to move
+    float scrubGain_ = 0.f;       // head output while the tape moves by hand
     float trackPeak_[4] = {};
 
     // 48 kHz tape -> device rate. Exact pass-through at 48 kHz; otherwise a

@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Martial Systems LLC. All rights reserved.
+"""Rasterize the LIFT SVG art into the bitmaps the plug-in embeds.
+
+The art (assets/art-src, from LIFT-art-svg) uses SVG filters (feTurbulence
+grain, drop shadows) that JUCE's Drawable cannot render, so it is rasterized
+here, ahead of the build, with resvg (MPL-2.0; a build tool only, nothing of it
+ships). The app never parses SVG.
+
+    python3 tools/rasterize_art.py [--resvg PATH]
+
+Writes assets/art/case@2x.jpg and case@3x.jpg: the blank case with its three
+recessed panels on the page colour, framed to the panel canvas (1432 x 996:
+the face sits at (36, 87.5), the SVG's own origin is at (16, 75.5)). The app
+picks the smallest that covers the window's device scale and area-averages
+it down once per window size.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+from PIL import Image
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, "assets", "art-src", "case-blank.svg")
+OUT = os.path.join(ROOT, "assets", "art")
+CANVAS_W, CANVAS_H = 1432, 996
+PAGE = "#c2bdb3"
+
+
+def framed_svg(scale):
+    s = open(SRC, encoding="utf-8").read()
+    root = re.search(r"<svg[^>]*>", s).group(0)
+    new_root = ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="-16 -75.5 %d %d">'
+                % (CANVAS_W * scale, CANVAS_H * scale, CANVAS_W, CANVAS_H))
+    bg = '<rect x="-16" y="-75.5" width="%d" height="%d" fill="%s"/>' % (CANVAS_W, CANVAS_H, PAGE)
+    s = s.replace(root, new_root, 1)
+    # the background goes first, after <defs>
+    i = s.find("</defs>")
+    i = i + len("</defs>") if i >= 0 else len(new_root)
+    return s[:i] + bg + s[i:]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--resvg", default="resvg")
+    a = ap.parse_args()
+    os.makedirs(OUT, exist_ok=True)
+    for scale in (2, 3):
+        with tempfile.TemporaryDirectory() as tmp:
+            svg = os.path.join(tmp, "case.svg")
+            png = os.path.join(tmp, "case.png")
+            open(svg, "w", encoding="utf-8").write(framed_svg(scale))
+            subprocess.run([a.resvg, svg, png], check=True)
+            im = Image.open(png).convert("RGB")
+            assert im.size == (CANVAS_W * scale, CANVAS_H * scale), im.size
+            dst = os.path.join(OUT, "case@%dx.jpg" % scale)
+            im.save(dst, quality=92, subsampling=0, optimize=True)
+            print("wrote", dst, im.size, os.path.getsize(dst), "bytes")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

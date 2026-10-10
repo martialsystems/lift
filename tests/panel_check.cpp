@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <vector>
 
+int runUiBench(float backingScale);
 void runStateChecks(const std::function<void(bool, const juce::String&)>& check);
 
 namespace {
@@ -260,6 +261,9 @@ int main(int argc, char** argv) {
     const juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile(base).getChildFile("ui");
     dir.createDirectory();
 
+    if (argc > 1 && juce::String(argv[1]) == "--ui-bench") {
+        return runUiBench(argc > 2 ? juce::String(argv[2]).getFloatValue() : 2.f);
+    }
     const bool anim = argc > 1 && juce::String(argv[1]) == "--anim";
     if (argc > 1 && juce::String(argv[1]) == "--bench") {
         // Screen repaint cost per animation frame (TAPE, tape running).
@@ -333,9 +337,10 @@ int main(int argc, char** argv) {
     check(recRms > 0.02 && a220 > 0.02, "the keyboard note was printed onto T1");
 
     // SCRUB to the top while stopped, LIFT (loop on: first 8 s of T1), arm T2, DROP.
-    panel.setEnc(3, 0.f);
+    // (SCRUB is a jog now: it moves the tape by hand, so seek to the top directly)
+    proc.send(lift::Cmd::Seek, 0, 0, 0.0);
     run(0.02);
-    check(proc.uiPos.load() < 1.0, "SCRUB returns the playhead to the top while stopped");
+    check(proc.uiPos.load() < 1.0, "seek returns the playhead to the top while stopped");
     panel.act("lift");
     panel.act("arm:1");
     panel.act("drop");
@@ -404,17 +409,17 @@ int main(int argc, char** argv) {
         p.pickCancel();
         p.pressMem(lift::ui::kShiftSlot);
         check(p.shiftActive(), "SHIFT latches again after the picker closes");
-        p.setEnc(3, static_cast<float>(48000.0 / fr));  // SCRUB to 1 s
+        r.proc.send(lift::Cmd::Seek, 0, 0, 48000.0);  // playhead (SCRUB is a jog now)  // SCRUB to 1 s
         r.step(0.05);
         p.pressKey(0);  // white 1: LOOP IN
-        p.setEnc(3, static_cast<float>(144000.0 / fr));
+        r.proc.send(lift::Cmd::Seek, 0, 0, 144000.0);  // playhead (SCRUB is a jog now)
         r.step(0.05);
         p.pressKey(2);  // white 2: LOOP OUT
         r.step(0.05);
         std::printf("  loop %d..%d\n", rt2.loopStart, rt2.loopEnd);
         check(std::abs(rt2.loopStart - 48000) <= 2 && std::abs(rt2.loopEnd - 144000) <= 2,
               "SHIFT + white 1/2 set loop in/out at the playhead (engine loop 1 s .. 3 s)");
-        p.setEnc(3, static_cast<float>(96000.0 / fr));
+        r.proc.send(lift::Cmd::Seek, 0, 0, 96000.0);  // playhead (SCRUB is a jog now)
         r.step(0.05);
         p.pressMem(1);  // SHIFT + LOOP
         r.step(0.05);
@@ -442,7 +447,7 @@ int main(int argc, char** argv) {
         r.step(0.1);
         check(rt2.ch[rt2.arm][0][1000] != 0.f, "CLEAR asks before clearing");
         p.pressKey(10);  // black 5: UNDO (nothing to undo yet: no change)
-        p.setEnc(3, static_cast<float>(48000.0 / fr));
+        r.proc.send(lift::Cmd::Seek, 0, 0, 48000.0);  // playhead (SCRUB is a jog now)
         r.step(0.05);
         const float before = rt2.ch[1][0][53000];
         p.act("drop");  // DROP (SHIFT + DROP is save): overdub the lifted sum onto T2

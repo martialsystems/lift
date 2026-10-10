@@ -8,16 +8,29 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace lift {
 
 // The LIFT front panel, drawn natively 1:1 from the HTML prototype
-// (LIFT.html). Everything is laid out in the prototype's CSS pixels: the
-// component's logical size is the prototype page at scale 1 (1432 x 996:
-// the control bar and info line, then the 1400 x 920 stage). LiftEditor
-// scales it to the window with a transform.
-class LiftPanel : public juce::Component, private juce::Timer, private LiftProcessor::Listener {
+// (LIFT.html). Everything is laid out in the prototype's CSS pixels ("canvas"
+// pixels: the prototype page at scale 1, 1432 x 996: the control bar and info
+// line, then the 1400 x 920 stage). The component is sized in real pixels
+// (one of LiftEditor's fixed sizes) and draws the canvas at that scale.
+//
+// Rendering (PanelRender.cpp), the RONIN / BUSHIDO model:
+//  - the static art (case, bay labels, brand, screen bezel, membrane sheet) is
+//    one image at device resolution, built once per window size;
+//  - parts that change (jacks, knobs, pads, keys, top bar) are drawn over it,
+//    from cached device-resolution sprites where they carry blurred shadows;
+//  - each frame compares every part with what was painted and repaints only
+//    the parts that changed (dirty rectangles);
+//  - the screen is a fixed-resolution display (Screen, 1200 x 812) redrawn in
+//    the display frame loop, and the cables live on their own layer (Cables).
+class LiftPanel : public juce::Component, private LiftProcessor::Listener {
 public:
     static constexpr int kW = 1432;
     static constexpr int kH = 996;
@@ -37,6 +50,10 @@ public:
     const std::vector<Cord>& cords() const { return cords_; }
     juce::String infoText() const { return info_; }
     void tick() { advance(1.0 / 60.0); }
+    // One display frame (the VBlank loop calls it with wall time).
+    void frame(double dt);
+    // Right-click on the panel: the editor's window-size menu.
+    std::function<void(juce::PopupMenu&)> addSizeItems;
     // Steps the screen animation clock. The 60 Hz timer calls it with wall
     // time; tests call it with a fixed step to render frame sequences.
     void advance(double dt);
@@ -72,6 +89,12 @@ public:
     UiState captureUi() const;
 
     void paint(juce::Graphics& g) override;
+    void resized() override;
+    float uiScale() const { return scale_; }
+    // canvas pixels -> component pixels
+    juce::Rectangle<int> toLocal(juce::Rectangle<float> canvas) const;
+    juce::Point<float> toCanvas(juce::Point<float> local) const { return local / scale_; }
+    static juce::Rectangle<float> screenGlass();  // the display, canvas pixels
     void modifierKeysChanged(const juce::ModifierKeys& mods) override;
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseDown(const juce::MouseEvent& e) override;
@@ -188,9 +211,6 @@ private:
     ScreenAnim an_;
     juce::Image screenBg_;
     float screenBgScale_ = 0.f;
-    juce::Image cableImg_;
-    juce::int64 cableKey_ = -1;
-    float cableScale_ = 0.f;
 
     LiftProcessor& proc_;
     juce::Image grain_;
@@ -223,7 +243,6 @@ private:
     void padAct(int k);
     void memAct(int k);
     void topAct(int k);
-    void timerCallback() override;
 
     // processor state sync (LiftProcessor::Listener)
     void applyUi(const UiState& s);
@@ -247,9 +266,18 @@ private:
     float pickDragY_ = 0.f;
 
     // painting (LiftPanelPaint.cpp)
+    struct PadLook {
+        juce::Rectangle<float> r;
+        juce::uint32 col = 0;
+        bool lit = false, unused = false;
+        juce::Colour ink;
+        juce::String big, label;
+        float bigSize = 0.f;
+    };
     void paintTopBar(juce::Graphics& g);
     void paintCase(juce::Graphics& g);
-    void paintBay(juce::Graphics& g);
+    void paintBayStatic(juce::Graphics& g, bool recess);
+    static void drawJack(juce::Graphics& g, char rc, int i, bool picked, bool ok);
     void paintBrand(juce::Graphics& g);
     void paintScreen(juce::Graphics& g);
     void paintStatus(juce::Graphics& g);
@@ -257,6 +285,7 @@ private:
     void paintViewFor(juce::Graphics& g, int view);
     void paintTransition(juce::Graphics& g, int view, float p);
     void paintScreenBg(juce::Graphics& g);
+    static void drawScreenBezel(juce::Graphics& g, bool wrap);
     double getSampleRateForScope() const { return 48000.0; }  // the scope tap runs at the tape rate
     void paintViewTape(juce::Graphics& g);
     void paintViewSynth(juce::Graphics& g);
@@ -265,13 +294,88 @@ private:
     void paintViewIn(juce::Graphics& g);
     void paintViewBay(juce::Graphics& g);
     void paintFoot(juce::Graphics& g);
-    void paintKnobs(juce::Graphics& g);
-    void paintPads(juce::Graphics& g);
-    void paintMembrane(juce::Graphics& g);
-    void paintKeys(juce::Graphics& g);
+    static juce::Point<float> knobOrigin(int i);
+    static void drawKnobTicks(juce::Graphics& g, float v);
+    static void drawKnobSkirt(juce::Graphics& g, int i);
+    static void drawKnobBody(juce::Graphics& g, int i, float v);
+    static void drawKnobCap(juce::Graphics& g);
+    void paintKnobLabels(juce::Graphics& g);
+    static void drawPadBody(juce::Graphics& g, juce::Rectangle<float> r, juce::uint32 fillCol, bool lit);
+    static void drawPadText(juce::Graphics& g, const PadLook& L, float alpha);
+    PadLook padLook(int k) const;
+    void paintMembraneStatic(juce::Graphics& g, bool frameToo);
+    void paintMemKeys(juce::Graphics& g);
+    static void drawSharp(juce::Graphics& g, juce::Point<float> c, bool down);
+    static void drawNatural(juce::Graphics& g, juce::Rectangle<float> r, bool down);
+    juce::Point<float> sharpPos(int o, int b) const;
+    juce::Rectangle<float> naturalRect(int j) const;
+    void paintKeyLabels(juce::Graphics& g);
     void paintCables(juce::Graphics& g);
+    static void drawSettledCable(juce::Graphics& g, float x1, float y1, float x2, float y2, int ci, bool st);
+    void paintLiveCable(juce::Graphics& g);
+    static juce::Rectangle<float> cableBounds(float x1, float y1, float x2, float y2);
+    juce::Rectangle<float> liveCableBounds() const;
     void paintMenu(juce::Graphics& g);
     void buildGrain();
+
+    // layers and invalidation (PanelRender.cpp)
+    class Screen;
+    class Cables;
+    friend class Screen;
+    friend class Cables;
+    std::unique_ptr<Screen> screen_;
+    std::unique_ptr<Cables> cables_;
+    std::unique_ptr<juce::VBlankAttachment> vblank_;
+    double lastVBlank_ = -1.0;
+    double screenClock_ = 0.0;
+    float scale_ = 1.f;
+    bool screenDirty_ = true;
+    bool inFrame_ = false;
+    juce::Image art_;
+    float artDps_ = 0.f;
+    struct Sprite {
+        juce::Image img;
+        juce::Point<int> off;  // device offset from the anchor's pixel
+    };
+    std::unordered_map<juce::uint64, Sprite> sprites_;
+    float spriteDps_ = 0.f;
+    struct KnobImg {
+        juce::Image img, skirt, cap;
+        juce::Point<int> org;  // device pixel of the image's top-left
+        float v = -1.f, dps = 0.f;
+    };
+    std::array<KnobImg, 4> knobImg_;
+    std::vector<juce::uint64> shown_;   // per part: what is on screen
+    juce::Image cableImg_;               // settled cables (Cables layer)
+    juce::Rectangle<int> cableImgDev_;   // its device rectangle
+    juce::uint64 cableKey_ = 0;
+    float cableDps_ = 0.f;
+    juce::Rectangle<int> cableShown_, liveShown_, menuShown_;
+    juce::uint64 menuKey_ = 0;
+    juce::Image fb_;                     // the display's framebuffer
+    struct CableSprite {
+        juce::Image img, gray;
+        juce::Rectangle<int> dev;  // device pixels
+        bool used = false;
+    };
+    std::unordered_map<juce::uint64, CableSprite> cableSprites_;
+    void buildCableImage(float phys);
+    void initLayers();
+    void repaint();                                     // state changed: invalidate what changed
+    void repaint(juce::Rectangle<int> canvasArea);      // canvas pixels
+    void refreshParts();
+    void refreshOverlay();
+    int partCount() const;
+    juce::uint64 partSig(int p) const;
+    juce::Rectangle<float> partRect(int p) const;       // canvas pixels
+    void ensureArt(float dps);
+    void blit(juce::Graphics& g, float phys, juce::uint64 variant, juce::Rectangle<float> devBounds,
+              juce::Point<float> devAnchor, const std::function<void(juce::Graphics&)>& draw, float opacity = 1.f);
+    void paintKnob(juce::Graphics& g, float phys, int i);
+    void paintScreenLayer(juce::Graphics& g);
+    void paintCableLayer(juce::Graphics& g);
+    void renderFb();
+    void onVBlank(double ts);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LiftPanel)
 };

@@ -3,3 +3,4 @@ build/
 *.wav
 !presets/**/*.wav
 __pycache__/
+lift-renders/

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Martial Systems LLC. All rights reserved.
 
 #include "LiftPanel.h"
+#include "PanelLayers.h"
 
 #include "Fonts.h"
 #include "PanelData.h"
@@ -57,11 +58,11 @@ LiftPanel::LiftPanel(LiftProcessor& p) : proc_(p) {
     advance(0.0);
     lastTick_ = juce::Time::getMillisecondCounterHiRes();
     proc_.setListener(this);
-    startTimerHz(60);
+    initLayers();
 }
 
 LiftPanel::~LiftPanel() {
-    stopTimer();
+    vblank_.reset();
     pushUi();
     proc_.setListener(nullptr);
     proc_.learnTarget.store(-1);
@@ -390,12 +391,8 @@ void LiftPanel::setEnc(int i, float v) {
             flash("LEARN " + knobName(target) + ": MOVE A CONTROL");
         }
     }
-    if (mode_ == Tape) {
-        syncEngine();
-        if (i == 3) {
-            proc_.send(Cmd::Seek, 0, 0, static_cast<double>(e) * static_cast<double>(proc_.uiFrames.load()));
-        }
-    }
+    // straight to the audio thread, which smooths it (no zipper noise)
+    proc_.setKnobValue(static_cast<int>(mode_), i, e);
     repaint();
 }
 
@@ -574,7 +571,7 @@ void LiftPanel::menuChoose(int k) {
 // ---------------------------------------------------------------- mouse
 
 void LiftPanel::mouseMove(const juce::MouseEvent& e) {
-    const auto c = e.position;
+    const auto c = toCanvas(e.position);
     const auto d = toDev(c);
     if (menu_.open) {
         int hv = -1;
@@ -605,8 +602,14 @@ void LiftPanel::mouseMove(const juce::MouseEvent& e) {
 
 void LiftPanel::mouseDown(const juce::MouseEvent& e) {
     grabKeyboardFocus();
-    const auto c = e.position;
+    const auto c = toCanvas(e.position);
     const auto d = toDev(c);
+    if (e.mods.isPopupMenu() && addSizeItems && !menu_.open && !jackAt(d).valid()) {
+        juce::PopupMenu m;
+        addSizeItems(m);
+        m.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+        return;
+    }
     if (menu_.open) {
         if (menu_.bounds.contains(c)) {
             return;  // chosen on mouse up (a click)
@@ -674,7 +677,7 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
 }
 
 void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
-    const auto c = e.position;
+    const auto c = toCanvas(e.position);
     if (drag_.active) {
         if (!drag_.started && c.getDistanceFrom(drag_.start) > 5.f) {
             drag_.started = true;
@@ -686,7 +689,7 @@ void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
         }
         if (drag_.started) {
             drag_.p = toDev(c);
-            repaint();
+            refreshParts();  // the cable layer and jack highlights only; the screen is not touched
         }
         return;
     }
@@ -715,7 +718,7 @@ void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
 }
 
 void LiftPanel::mouseUp(const juce::MouseEvent& e) {
-    const auto c = e.position;
+    const auto c = toCanvas(e.position);
     const auto d = toDev(c);
     if (menu_.open && menu_.bounds.contains(c)) {
         if (menu_.hover >= 0) {
@@ -825,7 +828,7 @@ void LiftPanel::mouseExit(const juce::MouseEvent&) {
 }
 
 void LiftPanel::mouseDoubleClick(const juce::MouseEvent& e) {
-    const int k = knobAt(toDev(e.position));
+    const int k = knobAt(toDev(toCanvas(e.position)));
     if (k >= 0) {
         kd_ = {};
         setEnc(k, 0.5f);
@@ -834,7 +837,7 @@ void LiftPanel::mouseDoubleClick(const juce::MouseEvent& e) {
 }
 
 void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
-    const int k = knobAt(toDev(e.position));
+    const int k = knobAt(toDev(toCanvas(e.position)));
     if (k < 0) {
         return;
     }
@@ -973,15 +976,6 @@ bool LiftPanel::keyStateChanged(bool isKeyDown) {
         return true;
     }
     return false;
-}
-
-// ---------------------------------------------------------------- timer
-
-void LiftPanel::timerCallback() {
-    const double now = juce::Time::getMillisecondCounterHiRes();
-    const double dt = juce::jlimit(0.0, 0.1, (now - lastTick_) / 1000.0);
-    lastTick_ = now;
-    advance(dt);
 }
 
 }  // namespace lift

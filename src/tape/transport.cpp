@@ -54,6 +54,14 @@ void transport_init(TapeRuntime& rt) noexcept {
         rt.ch[t][1] = nullptr;
         rt.mute[t] = false;
         rt.fader[t] = 1.f;
+        rt.panL[t] = 1.f;
+        rt.panR[t] = 1.f;
+        rt.lowG[t] = 0.f;
+        rt.highG[t] = 0.f;
+        for (int c = 0; c < 2; ++c) {
+            rt.eqLo[t][c] = 0.f;
+            rt.eqHi[t][c] = 0.f;
+        }
     }
     rt.frames = 0;
     rt.pos = 0.0;

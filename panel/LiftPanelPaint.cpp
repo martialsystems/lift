@@ -52,62 +52,6 @@ void LiftPanel::buildGrain() {
 
 // ------------------------------------------------------------------ paint
 
-void LiftPanel::paint(Graphics& g) {
-    // Animation frames repaint only the screen: draw just the screen and the
-    // cables that cross it.
-    // (A scaled window rounds the repaint rect outward, so allow a small rim;
-    // it still lies inside the opaque screen surround.)
-    const auto area = screenArea().expanded(6);
-    if (area.contains(g.getClipBounds())) {
-        {
-            Graphics::ScopedSaveState s(g);
-            g.addTransform(AffineTransform::translation(kDevX, kDevY));
-            paintScreen(g);
-            if (drag_.active) {
-                paintCables(g);
-                return;
-            }
-        }
-        // The cables over the screen only change when the patch does: cache them.
-        const float sc = juce::jmax(0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
-        juce::int64 key = static_cast<juce::int64>(cords_.size());
-        for (const Cord& c : cords_) {
-            key = key * 1000003 + ((c.o * 16 + c.i) * 8 + c.c) * 2 + (c.st ? 1 : 0);
-        }
-        if (cableImg_.isNull() || cableKey_ != key || cableScale_ != sc) {
-            cableKey_ = key;
-            cableScale_ = sc;
-            cableImg_ = juce::Image(juce::Image::ARGB, juce::roundToInt(area.getWidth() * sc),
-                                    juce::roundToInt(area.getHeight() * sc), true);
-            Graphics ig(cableImg_);
-            ig.addTransform(AffineTransform::translation(kDevX - static_cast<float>(area.getX()),
-                                                         kDevY - static_cast<float>(area.getY()))
-                                .scaled(sc));
-            paintCables(ig);
-        }
-        g.setImageResamplingQuality(Graphics::lowResamplingQuality);
-        g.drawImageTransformed(cableImg_, AffineTransform::scale(1.f / sc).translated(static_cast<float>(area.getX()),
-                                                                                       static_cast<float>(area.getY())));
-        return;
-    }
-    g.fillAll(hex(0xc2bdb3));
-    paintTopBar(g);
-    {
-        Graphics::ScopedSaveState s(g);
-        g.addTransform(AffineTransform::translation(kDevX, kDevY));
-        paintCase(g);
-        paintBay(g);
-        paintBrand(g);
-        paintScreen(g);
-        paintKnobs(g);
-        paintPads(g);
-        paintMembrane(g);
-        paintKeys(g);
-        paintCables(g);
-    }
-    paintMenu(g);
-}
-
 void LiftPanel::paintTopBar(Graphics& g) {
     const Colour fg = hex(0x24221e);
     text(g, "CABLE COLOR", jost(600, 12.f, 0.14f), fg, {16.f, 14.f, 200.f, 26.f}, Justification::centredLeft);
@@ -163,46 +107,17 @@ void LiftPanel::paintCase(Graphics& g) {
     }
 }
 
-void LiftPanel::paintBay(Graphics& g) {
-    const Path bay = rrect({44.f, 24.f, 1272.f, 156.f}, 10.f);
-    fill(g, bay, hex(0xddd1b5));
-    inset(g, bay, rgba(60, 50, 30, 0.26f), 0.f, 2.f, 5.f);
-    inset(g, bay, W(0.7f), 0.f, -1.f, 0.f);
-
-    std::vector<bool> used(32, false);
-    for (const auto& c : cords_) {
-        used[static_cast<size_t>(c.o)] = true;
-        used[static_cast<size_t>(16 + c.i)] = true;
+void LiftPanel::paintBayStatic(Graphics& g, bool recess) {
+    if (recess) {
+        const Path bay = rrect({44.f, 24.f, 1272.f, 156.f}, 10.f);
+        fill(g, bay, hex(0xddd1b5));
+        inset(g, bay, rgba(60, 50, 30, 0.26f), 0.f, 2.f, 5.f);
+        inset(g, bay, W(0.7f), 0.f, -1.f, 0.f);
     }
     for (int r = 0; r < 2; ++r) {
         const char rc = r == 0 ? 'o' : 'i';
         for (int i = 0; i < 16; ++i) {
             const float cx = jx(i), cy = jy(rc);
-            const Path body = circle(cx, cy, 16.f);
-            const bool picked = pick_.valid() && pick_.r == rc && pick_.i == i;
-            const bool ok = drag_.active && drag_.started && validTarget(rc, i);
-            if (picked) {
-                shadow(g, body, hex(YEL), 0.f, 0.f, 14.f);
-                fill(g, circle(cx, cy, 20.f), hex(YEL));
-            } else if (ok) {
-                fill(g, circle(cx, cy, 21.f), hex(0x1b1b1b));
-                fill(g, circle(cx, cy, 19.f), hex(0xf6f2e9));
-            } else {
-                shadow(g, body, rgba(40, 30, 10, 0.3f), 0.f, 4.f, 6.f);
-                shadow(g, body, B(0.35f), 0.f, 2.f, 1.f);
-                fill(g, circle(cx, cy + 1.f, 16.f), W(0.6f));
-            }
-            fill(g, body, hex(rc == 'o' ? RED : BLU));
-            fill(g, body, radial(cx - 16.f + 10.88f, cy - 16.f + 8.96f, 31.2f, 31.2f, {{0.f, W(0.5f)}, {0.42f, W(0.f)}}));
-            fill(g, body, radial(cx, cy, 22.63f, 22.63f, {{0.6f, B(0.f)}, {1.f, B(0.35f)}}));
-            // nut
-            shadow(g, circle(cx, cy, 11.f), B(0.45f), 0.f, 1.f, 1.f);
-            g.drawImage(nutImage(), Rectangle<float>(cx - 11.f, cy - 11.f, 22.f, 22.f));
-            g.setColour(B(0.35f));
-            g.drawEllipse(cx - 10.5f, cy - 10.5f, 21.f, 21.f, 1.f);
-            fill(g, circle(cx, cy, 7.5f), hex(0x4a4a47));
-            fill(g, circle(cx, cy, 6.5f), hex(0xb9b9b5));
-            fill(g, circle(cx, cy, 5.f), hex(0x050505));
             // label: symbol + name
             const JackDef& jd = rc == 'o' ? OUTS[i] : INS[i];
             const juce::String name = juce::String::fromUTF8(jd.n);
@@ -248,6 +163,35 @@ void LiftPanel::paintBay(Graphics& g) {
     }
 }
 
+// One patch point (no label): plain, picked (yellow glow) or a valid drop
+// target while a cable is carried.
+void LiftPanel::drawJack(Graphics& g, char rc, int i, bool picked, bool ok) {
+    const float cx = jx(i), cy = jy(rc);
+    const Path body = circle(cx, cy, 16.f);
+    if (picked) {
+        shadow(g, body, hex(YEL), 0.f, 0.f, 14.f);
+        fill(g, circle(cx, cy, 20.f), hex(YEL));
+    } else if (ok) {
+        fill(g, circle(cx, cy, 21.f), hex(0x1b1b1b));
+        fill(g, circle(cx, cy, 19.f), hex(0xf6f2e9));
+    } else {
+        shadow(g, body, rgba(40, 30, 10, 0.3f), 0.f, 4.f, 6.f);
+        shadow(g, body, B(0.35f), 0.f, 2.f, 1.f);
+        fill(g, circle(cx, cy + 1.f, 16.f), W(0.6f));
+    }
+    fill(g, body, hex(rc == 'o' ? RED : BLU));
+    fill(g, body, radial(cx - 16.f + 10.88f, cy - 16.f + 8.96f, 31.2f, 31.2f, {{0.f, W(0.5f)}, {0.42f, W(0.f)}}));
+    fill(g, body, radial(cx, cy, 22.63f, 22.63f, {{0.6f, B(0.f)}, {1.f, B(0.35f)}}));
+    // nut
+    shadow(g, circle(cx, cy, 11.f), B(0.45f), 0.f, 1.f, 1.f);
+    g.drawImage(nutImage(), Rectangle<float>(cx - 11.f, cy - 11.f, 22.f, 22.f));
+    g.setColour(B(0.35f));
+    g.drawEllipse(cx - 10.5f, cy - 10.5f, 21.f, 21.f, 1.f);
+    fill(g, circle(cx, cy, 7.5f), hex(0x4a4a47));
+    fill(g, circle(cx, cy, 6.5f), hex(0xb9b9b5));
+    fill(g, circle(cx, cy, 5.f), hex(0x050505));
+}
+
 void LiftPanel::paintBrand(Graphics& g) {
     const float cy = 210.f;
     const Colour ink = hex(0x1b1b1b);
@@ -283,10 +227,9 @@ void LiftPanel::paintBrand(Graphics& g) {
 
 // ------------------------------------------------------------------ knobs
 
-void LiftPanel::paintKnobs(Graphics& g) {
-    if (!g.clipRegionIntersects(Rectangle<int>(684, 240, 632, 198))) {
-        return;
-    }
+namespace {
+
+Path knobBody() {
     // BODY: M70 18 C78 18 88 38 96 51.4 A32 32 0 1 1 44 51.4 C52 38 62 18 70 18 Z
     Path body;
     body.startNewSubPath(70.f, 18.f);
@@ -295,70 +238,88 @@ void LiftPanel::paintKnobs(Graphics& g) {
     body.addCentredArc(70.f, 70.05f, 32.f, 32.f, 0.f, a0, 2.f * kPi - a0, false);
     body.cubicTo(52.f, 38.f, 62.f, 18.f, 70.f, 18.f);
     body.closeSubPath();
+    return body;
+}
 
-    static const char* glyphNames = nullptr;
-    juce::ignoreUnused(glyphNames);
-    const auto L = labels();
-    for (int i = 0; i < 4; ++i) {
-        const float v = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
-        const float ox = 684.f + static_cast<float>(i) * 160.f + 6.f, oy = 255.75f;
-        Graphics::ScopedSaveState s(g);
-        g.addTransform(AffineTransform::translation(ox, oy));
-        // printed tick ring
-        for (int t = 0; t <= 10; ++t) {
-            const float h = t % 5 == 0 ? 10.f : 7.f;
-            Path tk;
-            tk.addRectangle(-1.5f, -67.f, 3.f, h);
-            g.setColour(static_cast<float>(t) / 10.f <= v + 0.001f ? hex(BLK) : hex(0xb9ab8d));
-            g.fillPath(tk, AffineTransform::rotation((-135.f + t * 27.f) * kPi / 180.f).translated(70.f, 70.f));
-        }
-        const float deg = -135.f + v * 270.f;
-        const float rad = deg * kPi / 180.f;
-        const Colour kc = hex(KNOB[i]);
-        const Path skirt = circle(70.f, 70.f, 54.f);
-        shadow(g, circle(74.f, 77.f, 54.f), rgba(30, 20, 6, 0.5f), 0.f, 0.f, 12.f);
-        fill(g, skirt, kc);
-        fill(g, skirt, radial(70.f, 70.f, 54.f, 54.f,
-                              {{0.f, B(0.3f)}, {0.55f, B(0.3f)}, {0.7f, W(0.14f)}, {0.9f, W(0.f)}, {1.f, B(0.35f)}}));
-        fill(g, skirt, linear(35.44f, 24.64f, 102.4f, 118.6f, {{0.f, W(0.42f)}, {0.3f, W(0.1f)}, {0.55f, B(0.f)}, {1.f, B(0.4f)}}));
-        fill(g, skirt, radial(40.f, 40.f, 34.f, 34.f, {{0.f, W(0.42f)}, {0.5f, W(0.12f)}, {1.f, W(0.f)}}));
-        fill(g, skirt, radial(102.f, 102.f, 28.f, 28.f, {{0.f, W(0.14f)}, {1.f, W(0.f)}}));
-        g.setColour(B(0.45f));
-        g.drawEllipse(16.f, 16.f, 108.f, 108.f, 1.f);
-        const AffineTransform rot = AffineTransform::rotation(rad, 70.f, 70.f);
-        Path rb(body);
-        rb.applyTransform(rot);
-        Path contact(rb);
-        contact.applyTransform(AffineTransform::translation(2.f, 3.f));
-        juce::DropShadow(B(0.45f), 4, {}).drawForPath(g, contact);
-        fill(g, rb, kc);
-        // gloss and rim stay fixed to the light (gradientTransform counter-rotates)
-        fill(g, rb, radial(56.f, 50.f, 46.f, 46.f, {{0.f, W(0.55f)}, {0.3f, W(0.12f)}, {0.7f, W(0.f)}, {1.f, B(0.25f)}}));
-        fill(g, rb, linear(38.f, 30.f, 102.f, 110.f, {{0.f, W(0.38f)}, {0.45f, W(0.f)}, {1.f, B(0.25f)}}));
-        Path inlay;
-        inlay.addRoundedRectangle(68.4f, 22.f, 3.2f, 26.f, 1.2f);
-        inlay.applyTransform(rot);
-        fill(g, inlay, i == 1 ? hex(0x151515) : hex(0xf7f7f4));
-        g.setColour(i == 1 ? hex(0xf7f7f4) : B(0.5f));
-        g.strokePath(inlay, juce::PathStrokeType(0.6f));
-        // spun aluminium cap
-        fill(g, circle(70.f, 70.f, 21.f), B(0.55f));
-        for (int w = 0; w < 24; ++w) {
-            const float w0 = w * 15.f * kPi / 180.f, w1 = (w + 1) * 15.f * kPi / 180.f, am = (w0 + w1) * 0.5f;
-            const int gv = juce::roundToInt(178.f + 66.f * std::cos(2.f * (am - kPi * 1.25f)));
-            Path wd;
-            wd.startNewSubPath(70.f, 70.f);
-            // SVG angle (from +x, clockwise) -> JUCE angle (from 12 o'clock, clockwise): +pi/2
-            wd.addCentredArc(70.f, 70.f, 19.f, 19.f, 0.f, w0 + kPi * 0.5f, w1 + kPi * 0.5f + 0.004f, false);
-            wd.closeSubPath();
-            fill(g, wd, Colour(static_cast<juce::uint8>(gv), static_cast<juce::uint8>(gv), static_cast<juce::uint8>(juce::jmin(255, gv + 2))));
-        }
-        g.setColour(W(0.75f));
-        g.drawEllipse(51.f, 51.f, 38.f, 38.f, 0.8f);
-        g.setColour(B(0.5f));
-        g.drawEllipse(50.2f, 50.2f, 39.6f, 39.6f, 0.9f);
+}  // namespace
+
+// Knob i's own box (dev): its 140 x 140 drawing origin.
+juce::Point<float> LiftPanel::knobOrigin(int i) {
+    return {684.f + static_cast<float>(i) * 160.f + 6.f, 255.75f};
+}
+
+// The printed tick ring (lit up to the value). Knob-local coordinates.
+void LiftPanel::drawKnobTicks(Graphics& g, float v) {
+    for (int t = 0; t <= 10; ++t) {
+        const float h = t % 5 == 0 ? 10.f : 7.f;
+        Path tk;
+        tk.addRectangle(-1.5f, -67.f, 3.f, h);
+        g.setColour(static_cast<float>(t) / 10.f <= v + 0.001f ? hex(BLK) : hex(0xb9ab8d));
+        g.fillPath(tk, AffineTransform::rotation((-135.f + t * 27.f) * kPi / 180.f).translated(70.f, 70.f));
     }
+}
+
+// Skirt and its cast shadow: the same at any value.
+void LiftPanel::drawKnobSkirt(Graphics& g, int i) {
+    const Colour kc = hex(KNOB[i]);
+    const Path skirt = circle(70.f, 70.f, 54.f);
+    shadow(g, circle(74.f, 77.f, 54.f), rgba(30, 20, 6, 0.5f), 0.f, 0.f, 12.f);
+    fill(g, skirt, kc);
+    fill(g, skirt, radial(70.f, 70.f, 54.f, 54.f,
+                          {{0.f, B(0.3f)}, {0.55f, B(0.3f)}, {0.7f, W(0.14f)}, {0.9f, W(0.f)}, {1.f, B(0.35f)}}));
+    fill(g, skirt, linear(35.44f, 24.64f, 102.4f, 118.6f, {{0.f, W(0.42f)}, {0.3f, W(0.1f)}, {0.55f, B(0.f)}, {1.f, B(0.4f)}}));
+    fill(g, skirt, radial(40.f, 40.f, 34.f, 34.f, {{0.f, W(0.42f)}, {0.5f, W(0.12f)}, {1.f, W(0.f)}}));
+    fill(g, skirt, radial(102.f, 102.f, 28.f, 28.f, {{0.f, W(0.14f)}, {1.f, W(0.f)}}));
+    g.setColour(B(0.45f));
+    g.drawEllipse(16.f, 16.f, 108.f, 108.f, 1.f);
+}
+
+// The pointer body, rotated to the value (continuous: 270 degrees of travel).
+void LiftPanel::drawKnobBody(Graphics& g, int i, float v) {
+    static const Path body = knobBody();
+    const float deg = -135.f + v * 270.f;
+    const float rad = deg * kPi / 180.f;
+    const Colour kc = hex(KNOB[i]);
+    const AffineTransform rot = AffineTransform::rotation(rad, 70.f, 70.f);
+    Path rb(body);
+    rb.applyTransform(rot);
+    Path contact(rb);
+    contact.applyTransform(AffineTransform::translation(2.f, 3.f));
+    juce::DropShadow(B(0.45f), 4, {}).drawForPath(g, contact);
+    fill(g, rb, kc);
+    // gloss and rim stay fixed to the light (gradientTransform counter-rotates)
+    fill(g, rb, radial(56.f, 50.f, 46.f, 46.f, {{0.f, W(0.55f)}, {0.3f, W(0.12f)}, {0.7f, W(0.f)}, {1.f, B(0.25f)}}));
+    fill(g, rb, linear(38.f, 30.f, 102.f, 110.f, {{0.f, W(0.38f)}, {0.45f, W(0.f)}, {1.f, B(0.25f)}}));
+    Path inlay;
+    inlay.addRoundedRectangle(68.4f, 22.f, 3.2f, 26.f, 1.2f);
+    inlay.applyTransform(rot);
+    fill(g, inlay, i == 1 ? hex(0x151515) : hex(0xf7f7f4));
+    g.setColour(i == 1 ? hex(0xf7f7f4) : B(0.5f));
+    g.strokePath(inlay, juce::PathStrokeType(0.6f));
+}
+
+// Spun aluminium cap (fixed to the light).
+void LiftPanel::drawKnobCap(Graphics& g) {
+    fill(g, circle(70.f, 70.f, 21.f), B(0.55f));
+    for (int w = 0; w < 24; ++w) {
+        const float w0 = w * 15.f * kPi / 180.f, w1 = (w + 1) * 15.f * kPi / 180.f, am = (w0 + w1) * 0.5f;
+        const int gv = juce::roundToInt(178.f + 66.f * std::cos(2.f * (am - kPi * 1.25f)));
+        Path wd;
+        wd.startNewSubPath(70.f, 70.f);
+        // SVG angle (from +x, clockwise) -> JUCE angle (from 12 o'clock, clockwise): +pi/2
+        wd.addCentredArc(70.f, 70.f, 19.f, 19.f, 0.f, w0 + kPi * 0.5f, w1 + kPi * 0.5f + 0.004f, false);
+        wd.closeSubPath();
+        fill(g, wd, Colour(static_cast<juce::uint8>(gv), static_cast<juce::uint8>(gv), static_cast<juce::uint8>(juce::jmin(255, gv + 2))));
+    }
+    g.setColour(W(0.75f));
+    g.drawEllipse(51.f, 51.f, 38.f, 38.f, 0.8f);
+    g.setColour(B(0.5f));
+    g.drawEllipse(50.2f, 50.2f, 39.6f, 39.6f, 0.9f);
+}
+
+void LiftPanel::paintKnobLabels(Graphics& g) {
     // labels under the knobs
+    const auto L = labels();
     for (int i = 0; i < 4; ++i) {
         const float cx = 684.f + static_cast<float>(i) * 160.f + 76.f, cy = 405.75f + 8.25f;
         const float tw = cssWidth(600, false, 11.f, 0.12f, L[i]);
@@ -390,10 +351,9 @@ void LiftPanel::paintKnobs(Graphics& g) {
 
 // ------------------------------------------------------------------ pads
 
-namespace {
-
-void drawPad(Graphics& g, Rectangle<float> r, juce::uint32 fillCol, bool lit, Colour ink, const juce::String& big,
-             float bigSize, const juce::String& label) {
+// Pad body (cap, skirt, shadows, light): what a pad looks like without its
+// printing. The same for every pad of a colour and state, so it is cached.
+void LiftPanel::drawPadBody(Graphics& g, Rectangle<float> r, juce::uint32 fillCol, bool lit) {
     const Path p = rrect(r, 7.f);
     shadow(g, p, rgba(40, 30, 10, 0.28f), 0.f, 10.f, 12.f);
     shadow(g, p, B(0.28f), 0.f, 5.f, 1.f);
@@ -404,95 +364,82 @@ void drawPad(Graphics& g, Rectangle<float> r, juce::uint32 fillCol, bool lit, Co
     inset(g, p, W(lit ? 0.4f : 0.85f), 0.f, 1.f, 0.f);
     inset(g, p, B(0.12f), 0.f, -2.f, 1.f);
     inset(g, p, W(0.25f), 1.f, 0.f, 0.f);
-    if (big.isNotEmpty()) {
-        text(g, big, jost(bigSize > 20.f ? 500 : 600, bigSize), ink, {r.getX() + 9.f, r.getY() + 8.f, 60.f, bigSize},
+}
+
+void LiftPanel::drawPadText(Graphics& g, const PadLook& L, float alpha) {
+    const Rectangle<float> r = L.r;
+    const Colour ink = L.ink.withMultipliedAlpha(alpha);
+    if (L.big.isNotEmpty()) {
+        text(g, L.big, jost(L.bigSize > 20.f ? 500 : 600, L.bigSize), ink, {r.getX() + 9.f, r.getY() + 8.f, 60.f, L.bigSize},
              Justification::centredLeft);
     }
-    text(g, label, jost(600, 10.f, 0.1f), ink, {r.getX() + 9.f, r.getBottom() - 8.f - 12.f, 62.f, 12.f},
+    text(g, L.label, jost(600, 10.f, 0.1f), ink, {r.getX() + 9.f, r.getBottom() - 8.f - 12.f, 62.f, 12.f},
          Justification::centredLeft);
 }
 
-}  // namespace
-
-void LiftPanel::paintPads(Graphics& g) {
-    if (!g.clipRegionIntersects(Rectangle<int>(680, 440, 640, 245))) {
-        return;
+LiftPanel::PadLook LiftPanel::padLook(int k) const {
+    static const char* modeNames[5] = {"SYNTH", "DRUM", "TAPE", "MIX", "IN"};
+    PadLook L;
+    L.r = padRect(k);
+    if (pressedPad_ == k) {
+        L.r = L.r.translated(0.f, 2.f);
     }
-    const char* modeNames[5] = {"SYNTH", "DRUM", "TAPE", "MIX", "IN"};
-    for (int k = 0; k < 24; ++k) {
-        Rectangle<float> r = padRect(k);
-        if (pressedPad_ == k) {
-            r = r.translated(0.f, 2.f);
-        }
-        juce::uint32 col = 0;
-        bool lit = false;
-        Colour ink = hex(BLK);
-        juce::String big, label;
-        float bigSize = 0.f;
-        bool unused = false;
-        if (k < 5) {
-            lit = mode_ == k && !bay_;
-            col = YEL;
-            label = modeNames[k];
-        } else if (k == 5) {
-            lit = fx_;
-            col = BLK;
-            ink = lit ? hex(CRM) : hex(BLK);
-            label = "FX";
-        } else if (k == 6) {
-            lit = bay_;
-            col = BLU;
-            ink = lit ? hex(CRM) : hex(BLK);
-            label = "BAY";
-        } else if (k == 7) {
-            lit = mode_ == In && sel_[In] == 2 && !bay_;
-            col = RED;
-            ink = lit ? hex(CRM) : hex(BLK);
-            label = "RADIO";
-        } else if (k < 16) {
-            const int i = k - 8;
-            unused = mode_ == Mix || (mode_ == In && INPUTS[i][0] == 0);
-            lit = !unused && sel_[static_cast<size_t>(mode_)] == i;
-            col = RED;
-            ink = lit ? hex(CRM) : hex(BLK);
-            big = juce::String(i + 1);
-            bigSize = 24.f;
-            juce::String sub = mode_ == Synth ? juce::String(ENGINES[i].n)
-                               : mode_ == Drum ? juce::String(KITS[i])
-                               : mode_ == Tape ? juce::String("TAPE")
-                               : mode_ == In   ? juce::String(INPUTS[i])
-                                               : juce::String();
-            label = sub.isNotEmpty() ? sub : juce::String::fromUTF8("\xc2\xb7");
-        } else {
-            const int t = (k - 16) % 4;
-            const bool arm = k < 20;
-            lit = arm ? arm_ == t : mutes_[static_cast<size_t>(t)];
-            col = HW[t];
-            ink = lit ? (t == 1 ? hex(BLK) : hex(CRM)) : hex(BLK);
-            big = (arm ? "T" : "M") + juce::String(t + 1);
-            bigSize = 18.f;
-            label = arm ? "ARM" : "MUTE";
-        }
-        if (unused) {
-            g.beginTransparencyLayer(0.45f);
-        }
-        drawPad(g, r, col, lit, ink, big, bigSize, label);
-        if (unused) {
-            g.endTransparencyLayer();
-        }
+    L.ink = hex(BLK);
+    if (k < 5) {
+        L.lit = mode_ == k && !bay_;
+        L.col = YEL;
+        L.label = modeNames[k];
+    } else if (k == 5) {
+        L.lit = fx_;
+        L.col = BLK;
+        L.ink = L.lit ? hex(CRM) : hex(BLK);
+        L.label = "FX";
+    } else if (k == 6) {
+        L.lit = bay_;
+        L.col = BLU;
+        L.ink = L.lit ? hex(CRM) : hex(BLK);
+        L.label = "BAY";
+    } else if (k == 7) {
+        L.lit = mode_ == In && sel_[In] == 2 && !bay_;
+        L.col = RED;
+        L.ink = L.lit ? hex(CRM) : hex(BLK);
+        L.label = "RADIO";
+    } else if (k < 16) {
+        const int i = k - 8;
+        L.unused = mode_ == Mix || (mode_ == In && INPUTS[i][0] == 0);
+        L.lit = !L.unused && sel_[static_cast<size_t>(mode_)] == i;
+        L.col = RED;
+        L.ink = L.lit ? hex(CRM) : hex(BLK);
+        L.big = juce::String(i + 1);
+        L.bigSize = 24.f;
+        juce::String sub = mode_ == Synth ? juce::String(ENGINES[i].n)
+                           : mode_ == Drum ? juce::String(KITS[i])
+                           : mode_ == Tape ? juce::String("TAPE")
+                           : mode_ == In   ? juce::String(INPUTS[i])
+                                           : juce::String();
+        L.label = sub.isNotEmpty() ? sub : juce::String::fromUTF8("\xc2\xb7");
+    } else {
+        const int t = (k - 16) % 4;
+        const bool arm = k < 20;
+        L.lit = arm ? arm_ == t : mutes_[static_cast<size_t>(t)];
+        L.col = HW[t];
+        L.ink = L.lit ? (t == 1 ? hex(BLK) : hex(CRM)) : hex(BLK);
+        L.big = (arm ? "T" : "M") + juce::String(t + 1);
+        L.bigSize = 18.f;
+        L.label = arm ? "ARM" : "MUTE";
     }
+    return L;
 }
 
 // ------------------------------------------------------------------ membrane
 
-void LiftPanel::paintMembrane(Graphics& g) {
-    if (!g.clipRegionIntersects(Rectangle<int>(40, 694, 640, 160))) {
-        return;
+void LiftPanel::paintMembraneStatic(Graphics& g, bool frameToo) {
+    if (frameToo) {
+        const Path frame = rrect({44.f, 698.f, 632.f, 150.f}, 10.f);
+        fill(g, frame, hex(0xd4c7a9));
+        inset(g, frame, rgba(60, 50, 30, 0.25f), 0.f, 2.f, 4.f);
+        inset(g, frame, hex(0xffffff), 0.f, -1.f, 0.f);
     }
-    const Path frame = rrect({44.f, 698.f, 632.f, 150.f}, 10.f);
-    fill(g, frame, hex(0xd4c7a9));
-    inset(g, frame, rgba(60, 50, 30, 0.25f), 0.f, 2.f, 4.f);
-    inset(g, frame, hex(0xffffff), 0.f, -1.f, 0.f);
     const Rectangle<float> M(52.f, 706.f, 616.f, 134.f);
     const Path mem = rrect(M, 6.f);
     shadow(g, mem, B(0.4f), 0.f, 2.f, 3.f);
@@ -500,6 +447,12 @@ void LiftPanel::paintMembrane(Graphics& g) {
     fill(g, mem, hex(0x131313));
     g.setColour(hex(0xe6e6e2));
     g.drawRoundedRectangle(M.reduced(7.75f), 3.25f, 1.5f);
+}
+
+void LiftPanel::paintMemKeys(Graphics& g) {
+    if (!g.clipRegionIntersects(Rectangle<int>(40, 694, 640, 160))) {
+        return;
+    }
     const char* labels[10] = {"LIFT", "LOOP", "SHIFT", "REV", "DROP", "REC", "OCT", "PLAY", "OCT", "STOP"};
     const juce::Font lf = jost(500, 13.f, 0.06f);
     for (int k = 0; k < 10; ++k) {
@@ -574,64 +527,65 @@ void LiftPanel::paintMembrane(Graphics& g) {
 
 // ------------------------------------------------------------------ keyboard
 
-void LiftPanel::paintKeys(Graphics& g) {
-    if (!g.clipRegionIntersects(Rectangle<int>(680, 694, 640, 172))) {
-        return;
+void LiftPanel::drawSharp(Graphics& g, juce::Point<float> c, bool down) {
+    const Path p = circle(c.x, c.y, 21.f);
+    if (down) {
+        shadow(g, p, B(0.4f), 0.f, 2.f, 2.f);
+        fill(g, circle(c.x, c.y + 1.f, 21.f), hex(0x000000));
+    } else {
+        shadow(g, p, rgba(40, 30, 10, 0.32f), 0.f, 10.f, 12.f);
+        shadow(g, p, B(0.35f), 0.f, 5.f, 1.f);
+        fill(g, circle(c.x, c.y + 4.f, 21.f), hex(0x050505));
     }
+    fill(g, p, hex(0x1d1d1d));
+    fill(g, p, radial(c.x, c.y, 29.7f, 29.7f, {{0.58f, B(0.f)}, {1.f, B(0.5f)}}));
+    fill(g, p, radial(c.x - 21.f + 15.12f, c.y - 21.f + 10.92f, 14.28f, 9.24f, {{0.f, W(0.42f)}, {1.f, W(0.f)}}));
+    inset(g, p, W(down ? 0.15f : 0.18f), 0.f, 1.f, 0.f);
+}
+
+void LiftPanel::drawNatural(Graphics& g, Rectangle<float> r, bool down) {
+    const Path p = rrect(r, 6.f);
+    if (down) {
+        shadow(g, p, B(0.25f), 0.f, 2.f, 2.f);
+        fill(g, rrect(r.translated(0.f, 1.f), 6.f), hex(0xc9c0ab));
+    } else {
+        shadow(g, p, rgba(40, 30, 10, 0.28f), 0.f, 10.f, 12.f);
+        shadow(g, p, B(0.28f), 0.f, 5.f, 1.f);
+        fill(g, rrect(r.translated(0.f, 4.f), 6.f), hex(0xcbc2ad));
+    }
+    fill(g, p, hex(0xf7f4ec));
+    fill(g, p, linear(r.getX(), r.getY(), r.getX(), r.getBottom(), {{0.f, W(0.75f)}, {0.32f, W(0.f)}, {1.f, W(0.f)}}));
+    fill(g, p, radial(r.getCentreX(), r.getY() + 0.55f * r.getHeight(), 0.75f * r.getWidth(), 0.55f * r.getHeight(),
+                      {{0.f, B(0.05f)}, {0.72f, B(0.f)}}));
+    inset(g, p, down ? W(0.8f) : hex(0xffffff), 0.f, 1.f, 0.f);
+    if (!down) {
+        inset(g, p, B(0.08f), 0.f, -2.f, 1.f);
+    }
+}
+
+juce::Point<float> LiftPanel::sharpPos(int o, int b) const {
+    juce::Point<float> c = sharpCentre(o, b);
+    if (heldNote_ == o * 12 + SHARP_DEF[b][0]) {
+        c.y += 3.f;
+    }
+    return c;
+}
+
+Rectangle<float> LiftPanel::naturalRect(int j) const {
+    Rectangle<float> r = natRect(j);
+    if (heldNote_ == (j / 7) * 12 + NAT_SEMI[j % 7]) {
+        r = r.translated(0.f, 3.f);
+    }
+    return r;
+}
+
+void LiftPanel::paintKeyLabels(Graphics& g) {
+    // Only the C keys carry their octave (the prototype labelled every
+    // natural after the first redraw; fixed here).
     for (int o = 0; o < 2; ++o) {
-        for (int b = 0; b < 5; ++b) {
-            const int note = o * 12 + SHARP_DEF[b][0];
-            const bool down = heldNote_ == note;
-            juce::Point<float> c = sharpCentre(o, b);
-            if (down) {
-                c.y += 3.f;
-            }
-            const Path p = circle(c.x, c.y, 21.f);
-            if (down) {
-                shadow(g, p, B(0.4f), 0.f, 2.f, 2.f);
-                fill(g, circle(c.x, c.y + 1.f, 21.f), hex(0x000000));
-            } else {
-                shadow(g, p, rgba(40, 30, 10, 0.32f), 0.f, 10.f, 12.f);
-                shadow(g, p, B(0.35f), 0.f, 5.f, 1.f);
-                fill(g, circle(c.x, c.y + 4.f, 21.f), hex(0x050505));
-            }
-            fill(g, p, hex(0x1d1d1d));
-            fill(g, p, radial(c.x, c.y, 29.7f, 29.7f, {{0.58f, B(0.f)}, {1.f, B(0.5f)}}));
-            fill(g, p, radial(c.x - 21.f + 15.12f, c.y - 21.f + 10.92f, 14.28f, 9.24f, {{0.f, W(0.42f)}, {1.f, W(0.f)}}));
-            inset(g, p, W(down ? 0.15f : 0.18f), 0.f, 1.f, 0.f);
-        }
-    }
-    for (int j = 0; j < 14; ++j) {
-        const int o = j / 7;
-        const int note = o * 12 + NAT_SEMI[j % 7];
-        const bool down = heldNote_ == note;
-        Rectangle<float> r = natRect(j);
-        if (down) {
-            r = r.translated(0.f, 3.f);
-        }
-        const Path p = rrect(r, 6.f);
-        if (down) {
-            shadow(g, p, B(0.25f), 0.f, 2.f, 2.f);
-            fill(g, rrect(r.translated(0.f, 1.f), 6.f), hex(0xc9c0ab));
-        } else {
-            shadow(g, p, rgba(40, 30, 10, 0.28f), 0.f, 10.f, 12.f);
-            shadow(g, p, B(0.28f), 0.f, 5.f, 1.f);
-            fill(g, rrect(r.translated(0.f, 4.f), 6.f), hex(0xcbc2ad));
-        }
-        fill(g, p, hex(0xf7f4ec));
-        fill(g, p, linear(r.getX(), r.getY(), r.getX(), r.getBottom(), {{0.f, W(0.75f)}, {0.32f, W(0.f)}, {1.f, W(0.f)}}));
-        fill(g, p, radial(r.getCentreX(), r.getY() + 0.55f * r.getHeight(), 0.75f * r.getWidth(), 0.55f * r.getHeight(),
-                          {{0.f, B(0.05f)}, {0.72f, B(0.f)}}));
-        inset(g, p, down ? W(0.8f) : hex(0xffffff), 0.f, 1.f, 0.f);
-        if (!down) {
-            inset(g, p, B(0.08f), 0.f, -2.f, 1.f);
-        }
-        // Only the C keys carry their octave (the prototype labelled every
-        // natural after the first redraw; fixed here).
-        if (j % 7 == 0) {
-            text(g, "C" + juce::String(3 + o + oct_), jost(600, 10.f, 0.08f), hex(0x1b1b1b),
-                 {r.getX(), r.getBottom() - 9.f - 10.f, r.getWidth() + 0.8f, 10.f}, Justification::centred);
-        }
+        const Rectangle<float> r = naturalRect(o * 7);
+        text(g, "C" + juce::String(3 + o + oct_), jost(600, 10.f, 0.08f), hex(0x1b1b1b),
+             {r.getX(), r.getBottom() - 9.f - 10.f, r.getWidth() + 0.8f, 10.f}, Justification::centred);
     }
 }
 
@@ -647,9 +601,15 @@ Path cablePath(float x1, float y1, float x2, float y2) {
     return p;
 }
 
-void drawPlug(Graphics& g, float x, float y, const Cloth& k, bool st, bool aside) {
+void drawPlug(Graphics& g, float x, float y, const Cloth& k, bool st, bool aside, bool cheapShadow) {
     auto C = [&](Colour c) { return aside ? grayed(c) : c; };
-    shadow(g, circle(x + 3.f, y + 6.f, 15.f), C(rgba(30, 20, 6, 0.4f)), 0.f, 0.f, 7.f);
+    if (cheapShadow) {
+        for (int n = 0; n < 3; ++n) {
+            fill(g, circle(x + 3.f, y + 6.f, 15.f + 4.f - 2.f * static_cast<float>(n)), C(rgba(30, 20, 6, 0.09f + 0.04f * n)));
+        }
+    } else {
+        shadow(g, circle(x + 3.f, y + 6.f, 15.f), C(rgba(30, 20, 6, 0.4f)), 0.f, 0.f, 7.f);
+    }
     const Path boot = circle(x, y, 14.f);
     fill(g, boot, C(hex(k.boot)));
     fill(g, boot, radial(x - 14.f + 10.08f, y - 14.f + 8.4f, 20.16f, 20.16f, {{0.f, W(0.42f)}, {0.45f, W(0.f)}, {1.f, B(0.45f)}}));
@@ -669,12 +629,22 @@ void drawPlug(Graphics& g, float x, float y, const Cloth& k, bool st, bool aside
     }
 }
 
-void drawCable(Graphics& g, float x1, float y1, float x2, float y2, int ci, bool st, bool aside) {
+void drawCable(Graphics& g, float x1, float y1, float x2, float y2, int ci, bool st, bool aside, bool cheapShadow) {
     const Cloth& k = CLOTH[ci];
     auto C = [&](Colour c) { return aside ? grayed(c) : c; };
     const Path d = cablePath(x1, y1, x2, y2);
     const juce::PathStrokeType round(8.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    {
+    if (cheapShadow) {
+        // The cable in hand: its soft shadow as three widening offset strokes
+        // (no blur pass per frame). Settled cables keep the blurred one.
+        const AffineTransform off = AffineTransform::translation(5.f, 15.f);
+        const float wid[3] = {22.f, 16.f, 11.f};
+        const float al[3] = {0.07f, 0.1f, 0.14f};
+        for (int n = 0; n < 3; ++n) {
+            g.setColour(C(rgba(30, 20, 6, al[n])));
+            g.strokePath(d, juce::PathStrokeType(wid[n], juce::PathStrokeType::curved, juce::PathStrokeType::rounded), off);
+        }
+    } else {
         Path sh;
         juce::PathStrokeType(10.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded).createStrokedPath(sh, d);
         shadow(g, sh, C(rgba(30, 20, 6, 0.38f)), 5.f, 15.f, 7.f);
@@ -697,12 +667,23 @@ void drawCable(Graphics& g, float x1, float y1, float x2, float y2, int ci, bool
     g.setColour(W(0.14f));
     g.strokePath(d, juce::PathStrokeType(2.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
                  AffineTransform::translation(-1.4f, -2.f));
-    drawPlug(g, x1, y1, k, st, aside);
-    drawPlug(g, x2, y2, k, st, aside);
+    drawPlug(g, x1, y1, k, st, aside, cheapShadow);
+    drawPlug(g, x2, y2, k, st, aside, cheapShadow);
 }
 
 }  // namespace
 
+void LiftPanel::drawSettledCable(Graphics& g, float x1, float y1, float x2, float y2, int ci, bool st) {
+    drawCable(g, x1, y1, x2, y2, ci, st, false, false);
+}
+
+// Area a cable can touch (dev): the sagging path, its shadow and plugs.
+Rectangle<float> LiftPanel::cableBounds(float x1, float y1, float x2, float y2) {
+    return cablePath(x1, y1, x2, y2).getBounds().expanded(26.f).withTrimmedBottom(-20.f).withTrimmedRight(-8.f);
+}
+
+// Settled cables (all but the one in hand). While a cable is carried the
+// others step aside: greyed at half opacity.
 void LiftPanel::paintCables(Graphics& g) {
     const bool moving = drag_.active && drag_.isMove && drag_.started;
     const auto lv = levels(moving ? drag_.n : -1);
@@ -716,15 +697,27 @@ void LiftPanel::paintCables(Graphics& g) {
             g.beginTransparencyLayer(0.5f);
         }
         drawCable(g, jx(c.o), jy('o') - 6.f * static_cast<float>(lv[n].o), jx(c.i), jy('i') - 6.f * static_cast<float>(lv[n].i),
-                  c.c, c.st, aside);
+                  c.c, c.st, aside, false);
         if (aside) {
             g.endTransparencyLayer();
         }
     }
+}
+
+// The cable in hand.
+void LiftPanel::paintLiveCable(Graphics& g) {
     if (drag_.active && drag_.started) {
         const float fx = jx(drag_.fixed.i), fy = jy(drag_.fixed.r) - 6.f * static_cast<float>(drag_.flv);
-        drawCable(g, fx, fy, drag_.p.x, drag_.p.y, drag_.c, drag_.st, false);
+        drawCable(g, fx, fy, drag_.p.x, drag_.p.y, drag_.c, drag_.st, false, true);
     }
+}
+
+Rectangle<float> LiftPanel::liveCableBounds() const {
+    if (!(drag_.active && drag_.started)) {
+        return {};
+    }
+    const float fx = jx(drag_.fixed.i), fy = jy(drag_.fixed.r) - 6.f * static_cast<float>(drag_.flv);
+    return cableBounds(fx, fy, drag_.p.x, drag_.p.y);
 }
 
 // ------------------------------------------------------------------ menu

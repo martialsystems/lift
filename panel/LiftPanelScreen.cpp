@@ -294,6 +294,32 @@ void LiftPanel::advance(double dtD) {
 
 // ------------------------------------------------------------------ screen
 
+// The bezel and glass: the wrap (the case recess round the screen; in the
+// SVG art when that is used), the black rim and the glass with its sheen and
+// inner shadows.
+void LiftPanel::drawScreenBezel(Graphics& g, bool wrap) {
+    if (wrap) {
+        const Path w = rrect({44.f, 240.f, 632.f, 438.f}, 10.f);
+        fill(g, w, hex(0xd9cdb1));
+        inset(g, w, rgba(60, 50, 30, 0.28f), 0.f, 2.f, 4.f);
+        inset(g, w, W(0.7f), 0.f, -1.f, 0.f);
+    }
+    const Rectangle<float> S(60.f, 256.f, 600.f, 406.f);
+    const Path scr = rrect(S, 4.f);
+    fill(g, rrect(S.expanded(2.f), 6.f), hex(0x121212));
+    fill(g, scr, hex(0x0b0b0b));
+    {
+        const float dx = std::sin(122.f * kPi / 180.f), dy = -std::cos(122.f * kPi / 180.f);
+        const float len = 600.f * std::abs(dx) + 406.f * std::abs(dy);
+        const float cx = S.getCentreX(), cy = S.getCentreY();
+        fill(g, scr,
+             linear(cx - dx * len * 0.5f, cy - dy * len * 0.5f, cx + dx * len * 0.5f, cy + dy * len * 0.5f,
+                    {{0.f, W(0.075f)}, {0.34f, W(0.02f)}, {0.345f, W(0.f)}, {1.f, W(0.f)}}));
+    }
+    inset(g, scr, B(0.85f), 0.f, 0.f, 50.f);
+    inset(g, scr, B(0.9f), 0.f, 2.f, 6.f);
+}
+
 void LiftPanel::paintScreenBg(Graphics& g) {
     // The bezel, glass and inset shadows never move: cached once per scale.
     const float sc = juce::jmax(0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
@@ -304,24 +330,7 @@ void LiftPanel::paintScreenBg(Graphics& g) {
         screenBg_ = juce::Image(juce::Image::ARGB, juce::roundToInt(632.f * sc), juce::roundToInt(439.f * sc), true);
         Graphics ig(screenBg_);
         ig.addTransform(AffineTransform::translation(-44.f, -239.5f).scaled(sc));
-        const Path wrap = rrect({44.f, 240.f, 632.f, 438.f}, 10.f);
-        fill(ig, wrap, hex(0xd9cdb1));
-        inset(ig, wrap, rgba(60, 50, 30, 0.28f), 0.f, 2.f, 4.f);
-        inset(ig, wrap, W(0.7f), 0.f, -1.f, 0.f);
-        const Rectangle<float> S(60.f, 256.f, 600.f, 406.f);
-        const Path scr = rrect(S, 4.f);
-        fill(ig, rrect(S.expanded(2.f), 6.f), hex(0x121212));
-        fill(ig, scr, hex(0x0b0b0b));
-        {
-            const float dx = std::sin(122.f * kPi / 180.f), dy = -std::cos(122.f * kPi / 180.f);
-            const float len = 600.f * std::abs(dx) + 406.f * std::abs(dy);
-            const float cx = S.getCentreX(), cy = S.getCentreY();
-            fill(ig, scr,
-                 linear(cx - dx * len * 0.5f, cy - dy * len * 0.5f, cx + dx * len * 0.5f, cy + dy * len * 0.5f,
-                        {{0.f, W(0.075f)}, {0.34f, W(0.02f)}, {0.345f, W(0.f)}, {1.f, W(0.f)}}));
-        }
-        inset(ig, scr, B(0.85f), 0.f, 0.f, 50.f);
-        inset(ig, scr, B(0.9f), 0.f, 2.f, 6.f);
+        drawScreenBezel(ig, true);
     }
     // The layer is at device resolution, so nearest-neighbour is enough when
     // the window scale leaves it off the pixel grid.

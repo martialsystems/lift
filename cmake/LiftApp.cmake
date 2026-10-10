@@ -20,6 +20,7 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/LiftPanel.cpp
     ${LIFT_ROOT}/panel/LiftPanelPaint.cpp
     ${LIFT_ROOT}/panel/LiftPanelScreen.cpp
+    ${LIFT_ROOT}/panel/PanelRender.cpp
     ${LIFT_ROOT}/panel/LiftShift.cpp
     ${LIFT_ROOT}/panel/LiftProcessor.cpp
     ${LIFT_ROOT}/panel/LiftSlots.cpp
@@ -38,6 +39,16 @@ juce_add_binary_data(lift_fonts
         ${LIFT_ROOT}/assets/fonts/SpaceMono-Bold.ttf
 )
 set_target_properties(lift_fonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# The case art, rasterized from the SVG (tools/rasterize_art.py, resvg at
+# build-prep time; the app never parses SVG).
+juce_add_binary_data(lift_art
+    HEADER_NAME LiftArtData.h
+    NAMESPACE LiftArtData
+    SOURCES
+        ${LIFT_ROOT}/assets/art/case@2x.jpg
+        ${LIFT_ROOT}/assets/art/case@3x.jpg
+)
+set_target_properties(lift_art PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(LIFT_APP_FORMATS Standalone VST3)
 if(APPLE)
@@ -56,20 +67,21 @@ juce_add_plugin(LiftApp
     COPY_PLUGIN_AFTER_BUILD FALSE
     FORMATS ${LIFT_APP_FORMATS}
 )
-target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES} ${LIFT_ROOT}/panel/StandaloneApp.cpp)
 target_include_directories(LiftApp PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel)
 target_compile_definitions(LiftApp PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
-target_link_libraries(LiftApp PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+target_link_libraries(LiftApp PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 # Headless check: renders the panel screens to PNG and drives the panel
 # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
 juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
-target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_ROOT}/tests/ui_bench.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
 target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel)
 target_compile_definitions(lift_panel_check PRIVATE
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
-target_link_libraries(lift_panel_check PRIVATE lift_fonts juce::juce_audio_utils juce::juce_dsp
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(lift_panel_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 add_test(NAME lift_panel_check COMMAND lift_panel_check)
