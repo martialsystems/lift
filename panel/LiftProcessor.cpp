@@ -818,7 +818,7 @@ void LiftProcessor::jackPress() noexcept {
     // REC jack / column: a rising edge presses REC (or LIFT, by the REC-jack option)
     TapeRuntime& rt = *rt_;
     if (recJackLifts.load(std::memory_order_relaxed)) {
-        apply({Cmd::Lift, 0, 0, 0.0});
+        uiLiftPresses.fetch_add(1, std::memory_order_release);  // the panel keeps (message thread)
         return;
     }
     apply({Cmd::Transport, 1, rt.recording ? 0 : 1, 0.0});

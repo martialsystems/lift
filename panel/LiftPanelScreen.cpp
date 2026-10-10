@@ -127,6 +127,11 @@ void LiftPanel::advance(double dtD) {
         }
         wasRec_ = rec;
         busy = busy || selectOpen_;
+        const int lp = proc_.uiLiftPresses.load();
+        if (lp != seenLift_) {
+            seenLift_ = lp;
+            act("lift");  // the REC jack, set to press LIFT
+        }
     }
 
     // view changes start a slide; the status label pops

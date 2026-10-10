@@ -141,6 +141,7 @@ public:
     // Standalone export: the clip, T1-T4 and the master (the capture: what
     // you heard) as 24-bit WAV at the tape rate (48 kHz) into `folder`.
     bool exportWavs(const juce::File& folder, const ClipPtr& clip, juce::StringArray* written = nullptr);
+    std::atomic<int> uiLiftPresses{0};  // the REC jack pressed LIFT (the REC-jack option)
     std::atomic<int> uiPassCount{0};    // overdub passes started (the panel's history follows it)
     std::atomic<float> uiLimiterGr{0.f};
     std::atomic<float> bias{0.45f};    // BIAS knob, 0..1

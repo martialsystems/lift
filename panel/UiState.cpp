@@ -159,6 +159,8 @@ juce::ValueTree UiState::toTree() const {
         t.setProperty("pins", pa.joinIntoString(" "), nullptr);
     }
     t.setProperty("recJackLifts", recJackLifts, nullptr);
+    t.setProperty("quantScale", quantScale, nullptr);
+    t.setProperty("drumGateMs", drumGateMs, nullptr);
     juce::StringArray l;
     for (int cc = 0; cc < 128; ++cc) {
         if (learn[static_cast<size_t>(cc)] >= 0) {
@@ -271,6 +273,8 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
         }
     }
     s.recJackLifts = t.getProperty("recJackLifts", s.recJackLifts);
+    s.quantScale = clampInt(t["quantScale"], 0, 4, s.quantScale);
+    s.drumGateMs = juce::jlimit(1.f, 500.f, static_cast<float>(t.getProperty("drumGateMs", s.drumGateMs)));
     for (const auto& pair : split(t["learn"])) {
         const int cc = pair.upToFirstOccurrenceOf(":", false, false).getIntValue();
         const int tg = pair.fromFirstOccurrenceOf(":", false, false).getIntValue();

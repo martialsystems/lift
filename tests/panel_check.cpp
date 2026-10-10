@@ -614,6 +614,18 @@ int main(int argc, char** argv) {
         check(rd != nullptr && rd->bitsPerSample == 24 && rd->sampleRate == 48000.0 && ex.getChildFile("LIFT-master.wav").existsAsFile() &&
                   ex.getChildFile("LIFT-clip.wav").existsAsFile(),
               "export writes the clip, T1-T4 and the master as 24-bit 48 kHz WAV");
+        // P4: the REC jack / column set to press LIFT; PULSE pinned to REC
+        r.proc.recJackLifts.store(true);
+        const int lifts0 = r.proc.uiLiftPresses.load();
+        const auto before = p.keptClip();
+        p.setPin(11, 11, 1);  // PULSE -> REC
+        p.act("play");
+        r.step(1.5);
+        std::printf("  PULSE -> REC (presses LIFT): %d presses\n", r.proc.uiLiftPresses.load() - lifts0);
+        check(r.proc.uiLiftPresses.load() > lifts0 && p.keptClip() != before && !rt.recording,
+              "PULSE pinned to REC, REC set to press LIFT: the pulses keep (LIFT), never record");
+        p.act("stop");
+        r.step(0.5);
     }
     runStateChecks([](bool ok, const juce::String& what) { check(ok, what); });
     runKnobChecks([](bool ok, const juce::String& what) { check(ok, what); });

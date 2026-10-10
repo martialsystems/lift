@@ -224,6 +224,7 @@ private:
     LiftProcessor::ClipPtr keysAt_, drumAt_;
     std::array<LiftProcessor::ClipPtr, 128> keyAt_{};
     int seenPass_ = 0;
+    int seenLift_ = 0;
     bool wasRec_ = false;
     std::vector<float> wavePk_;    // SELECT waveform cache (min / max per pixel)
     juce::int64 waveKey_ = -1;

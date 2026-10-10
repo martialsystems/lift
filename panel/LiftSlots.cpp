@@ -58,6 +58,8 @@ UiState LiftPanel::captureUi() const {
     s.cords = cords_;
     s.pins = pins_;
     s.recJackLifts = recJackLifts_;
+    s.quantScale = proc_.quantScale.load();
+    s.drumGateMs = proc_.drumGateMs.load();
     s.learn = learn_;
     s.drumPat = drumPat_;
     s.drumVoice = drumVoice_;
@@ -94,6 +96,9 @@ void LiftPanel::applyUi(const UiState& s) {
     cords_ = s.cords;
     pins_ = s.pins;
     recJackLifts_ = s.recJackLifts;
+    proc_.recJackLifts.store(recJackLifts_);
+    proc_.quantScale.store(s.quantScale);
+    proc_.drumGateMs.store(s.drumGateMs);
     ropes_.clear();
     learn_ = s.learn;
     drumPat_ = s.drumPat;

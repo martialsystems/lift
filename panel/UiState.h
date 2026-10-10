@@ -51,6 +51,8 @@ struct UiState {
     std::array<std::uint8_t, 256> pins{};
     // REC jack option (P4): the REC jack presses LIFT instead of REC
     bool recJackLifts = false;
+    int quantScale = 0;        // eng::kQuantScaleNames
+    float drumGateMs = 10.f;   // the DRUM jack's pulse length
     std::array<int, 128> learn;  // CC number -> knob target, -1 = not learned
     // DRUM: step patterns per kit and voice (bit s = step s), the voice the
     // DRUM knobs play, and each voice's PITCH / CHOKE / DECAY knob.

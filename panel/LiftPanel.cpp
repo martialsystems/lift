@@ -701,7 +701,34 @@ void LiftPanel::openMenu(JackId j, juce::Point<float> canvas) {
                    (c.st ? juce::String::fromUTF8(" \xc2\xb7 stackable") : juce::String());
         menu_.items.push_back(it);
     }
-    if (cords_[static_cast<size_t>(here.back())].st) {
+    // P4 jack options: REC presses LIFT, QUANT scale, DRUM pulse length
+    auto option = [&](int n, const juce::String& label) {
+        MenuItem it;
+        it.kind = 3;
+        it.n = n;
+        it.hasDot = false;
+        it.label = label;
+        menu_.items.push_back(it);
+    };
+    if (j.r == 'i' && j.i == eng::I_REC) {
+        option(0, recJackLifts_ ? "This jack presses REC" : "This jack presses LIFT");
+    } else if (j.r == 'i' && j.i == eng::I_QUANT) {
+        for (int s = 0; s < 5; ++s) {
+            option(10 + s, juce::String("Scale: ") + eng::kQuantScaleNames[s] + (proc_.quantScale.load() == s ? juce::String::fromUTF8("  \xe2\x9c\x93") : juce::String()));
+        }
+    } else if (j.r == 'o' && j.i == eng::O_DRUM) {
+        static const int ms[4] = {2, 10, 50, 200};
+        for (int s = 0; s < 4; ++s) {
+            option(20 + s, "Pulse length " + juce::String(ms[s]) + " ms" +
+                               (std::abs(proc_.drumGateMs.load() - static_cast<float>(ms[s])) < 0.5f ? juce::String::fromUTF8("  \xe2\x9c\x93") : juce::String()));
+        }
+    }
+    if (here.empty()) {
+        if (menu_.items.empty()) {
+            menu_.open = false;
+            return;
+        }
+    } else if (cords_[static_cast<size_t>(here.back())].st) {
         MenuItem it;
         it.kind = 1;
         it.dot = hex(CLOTH[color_].c);
@@ -737,6 +764,23 @@ void LiftPanel::openMenu(JackId j, juce::Point<float> canvas) {
 void LiftPanel::menuChoose(int k) {
     const MenuItem it = menu_.items[static_cast<size_t>(k)];
     const JackId j = menu_.jack;
+    if (it.kind == 3) {
+        if (it.n == 0) {
+            recJackLifts_ = !recJackLifts_;
+            proc_.recJackLifts.store(recJackLifts_);
+            flash(recJackLifts_ ? "REC JACK PRESSES LIFT" : "REC JACK PRESSES REC");
+        } else if (it.n >= 10 && it.n < 15) {
+            proc_.quantScale.store(it.n - 10);
+            flash(juce::String("QUANT ") + eng::kQuantScaleNames[it.n - 10]);
+        } else if (it.n >= 20) {
+            static const float ms[4] = {2.f, 10.f, 50.f, 200.f};
+            proc_.drumGateMs.store(ms[it.n - 20]);
+            flash("DRUM PULSE " + juce::String(juce::roundToInt(ms[it.n - 20])) + " MS");
+        }
+        menu_.open = false;
+        repaint();
+        return;
+    }
     if (it.kind == 0) {
         const Cord c = cords_[static_cast<size_t>(it.n)];
         cords_.erase(cords_.begin() + it.n);
@@ -815,6 +859,13 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
         juce::PopupMenu m;
         addSizeItems(m);
         m.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+        return;
+    }
+    if (e.mods.isPopupMenu() && !menu_.open && jackAt(d).valid()) {
+        // right-click a jack: its menu (cables, and the P4 jack options)
+        pick_ = {};
+        openMenu(jackAt(d), c);
+        repaint();
         return;
     }
     if (menu_.open) {
