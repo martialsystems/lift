@@ -64,6 +64,7 @@ struct TapeEngine {
     int latency;
     // record chain
     TapeBiquad preEmph;
+    TapeBiquad biasEq;   // record HF sensitivity against bias (under: brighter, over: duller)
     TapeBiquad deEmph;
     float hystPlay[2];
     float dcX[2];

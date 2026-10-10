@@ -128,6 +128,10 @@ void design_record(TapeEngine& e) noexcept {
     const double fs = fs_of(e);
     design_high_shelf(e.preEmph, fs, kEmphHz, e.p.preEmphDb);
     design_high_shelf(e.deEmph, fs, kEmphHz, -e.p.preEmphDb);
+    // Bias sets the tape's HF sensitivity on record: over-biasing erases the
+    // short wavelengths as they are written (dull), under-biasing leaves them
+    // hot (bright and gritty). Flat at the nominal bias (0.5).
+    design_high_shelf(e.biasEq, fs, 4500.0, 16.f * (0.5f - e.p.bias));
 }
 
 // Head bump and gap loss move with the speed of tape past the head.
@@ -242,6 +246,7 @@ void tape_engine_set_params(TapeEngine& e, const TapeParams& p) noexcept {
 
 void tape_engine_reset(TapeEngine& e) noexcept {
     biquad_clear(e.preEmph);
+    biquad_clear(e.biasEq);
     biquad_clear(e.deEmph);
     svf_clear(e.bump);
     svf_clear(e.gapA);
@@ -321,7 +326,7 @@ void tape_engine_record(TapeEngine& e, const float* inL, const float* inR, float
         }
         for (int c = 0; c < 2; ++c) {
             for (int i = 0; i < m; ++i) {
-                const float y = biquad_run(e.deEmph, c, chans[c][i]);
+                const float y = biquad_run(e.biasEq, c, biquad_run(e.deEmph, c, chans[c][i]));
                 const float d = y - e.dcX[c] + dcR * e.dcY[c];
                 e.dcX[c] = y;
                 e.dcY[c] = d;

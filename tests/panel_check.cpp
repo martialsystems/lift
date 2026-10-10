@@ -21,6 +21,7 @@
 
 int runUiBench(float backingScale);
 void runStateChecks(const std::function<void(bool, const juce::String&)>& check);
+void runKnobChecks(const std::function<void(bool, const juce::String&)>& check);
 
 namespace {
 
@@ -496,6 +497,7 @@ int main(int argc, char** argv) {
         pn.pickCancel();
     }
     runStateChecks([](bool ok, const juce::String& what) { check(ok, what); });
+    runKnobChecks([](bool ok, const juce::String& what) { check(ok, what); });
     if (anim) {
         std::printf("-- shift frames\n");
         const juce::File sdir = dir.getParentDirectory().getChildFile("shift");
