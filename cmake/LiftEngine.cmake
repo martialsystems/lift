@@ -20,3 +20,7 @@ add_executable(lift_engine_check ${LIFT_ROOT}/tests/engine_check.cpp)
 target_link_libraries(lift_engine_check PRIVATE lift_engine)
 add_test(NAME lift_engine_check COMMAND lift_engine_check)
 
+
+# Tuning helper (not shipped): one drum hit to a WAV for tools/drum_ref_analysis.py
+add_executable(lift_drum_render ${LIFT_ROOT}/tools/drum_render.cpp)
+target_link_libraries(lift_drum_render PRIVATE lift_engine)

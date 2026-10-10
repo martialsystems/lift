@@ -223,13 +223,14 @@ double t40(Drums& d, int v) {
 }
 
 void drumChecks() {
-    // reference ballparks for the -40 dB time (ms) of the hardware at its usual settings
+    // ballparks for the -40 dB time (ms), bracketing the reference one-shots
+    // measured by tools/drum_ref_analysis.py (808 / 909 hardware samples)
     struct Ref { int voice; double lo808, hi808, lo909, hi909; };
     const Ref refs[] = {
-        {0, 350, 900, 0, 0},     {1, 0, 0, 250, 500},   {2, 120, 250, 140, 280}, {4, 150, 320, 100, 200},
-        {5, 25, 80, 25, 80},     {6, 30, 90, 30, 90},   {7, 150, 350, 150, 300}, {8, 30, 90, 40, 110},
-        {9, 250, 600, 300, 600}, {10, 700, 1600, 800, 1800}, {11, 250, 500, 220, 450}, {12, 220, 450, 200, 400},
-        {13, 180, 400, 160, 350},
+        {0, 350, 900, 0, 0},     {1, 0, 0, 300, 650},   {2, 90, 250, 200, 600},  {4, 100, 250, 80, 200},
+        {5, 25, 80, 25, 80},     {6, 30, 90, 30, 90},   {7, 150, 350, 150, 300}, {8, 40, 110, 60, 140},
+        {9, 300, 650, 350, 650}, {10, 700, 1600, 800, 1800}, {11, 250, 500, 350, 650}, {12, 220, 450, 230, 420},
+        {13, 180, 400, 250, 480},
     };
     auto d = std::make_unique<Drums>();
     d->prepare(kFs);

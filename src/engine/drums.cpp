@@ -52,46 +52,56 @@ const int kPanParam[kDrumVoices] = {P_BD1_PAN, P_BD2_PAN, P_SD_PAN, P_RS_PAN, P_
 // KIT 1: the classic bridged-T box (808 style). Long-ish, tunable kick;
 // tight snare, clap, hats.
 const P k808[] = {
-    {P_BD1_TUNE, 0.32f}, {P_BD1_PITCH, 0.22f}, {P_BD1_DECAY, 0.598f}, {P_BD1_ATTACK, 0.35f}, {P_BD1_NOISE, 0.0f},
+    {P_BD1_TUNE, 0.260f}, {P_BD1_PITCH, 0.100f}, {P_BD1_DECAY, 0.618f}, {P_BD1_ATTACK, 0.35f}, {P_BD1_NOISE, 0.0f},
     {P_BD1_DRIVE, 0.08f}, {P_BD1_LEVEL, 0.80f},
     {P_BD2_LEVEL, 0.0f},
-    {P_SD_TUNE, 0.38f}, {P_SD_DETUNE, 0.62f}, {P_SD_PITCH, 0.10f}, {P_SD_TONE, 0.45f}, {P_SD_SNAPPY, 0.55f},
-    {P_SD_TDECAY, 0.244f}, {P_SD_SNDEC, 0.364f}, {P_SD_LEVEL, 0.70f},
+    {P_SD_TUNE, 0.280f}, {P_SD_DETUNE, 0.62f}, {P_SD_PITCH, 0.10f}, {P_SD_TONE, 0.600f}, {P_SD_SNAPPY, 0.530f},
+    {P_SD_TDECAY, 0.244f}, {P_SD_SNDEC, 0.204f}, {P_SD_LEVEL, 0.70f},
     {P_RS_TUNE, 0.45f}, {P_RS_LEVEL, 0.62f},
-    {P_CP_ATTACK, 0.5f}, {P_CP_COUNT, 0.40f}, {P_CP_FILTER, 0.45f}, {P_CP_DECAY, 0.356f}, {P_CP_LEVEL, 0.72f},
+    {P_CP_ATTACK, 0.5f}, {P_CP_COUNT, 0.40f}, {P_CP_FILTER, 0.750f}, {P_CP_DECAY, 0.266f}, {P_CP_LEVEL, 0.72f},
     {P_CL_TUNE, 0.45f}, {P_CL_DECAY, 0.039f}, {P_CL_LEVEL, 0.60f},
     {P_MA_DECAY, 0.052f}, {P_MA_LEVEL, 0.62f},
     {P_CB_TUNE, 0.42f}, {P_CB_DECAY, 0.455f}, {P_CB_LEVEL, 0.55f},
-    {P_CH_TUNE, 0.50f}, {P_CH_DECAY, 0.074f}, {P_CH_LEVEL, 0.70f}, {P_CH_CHOKE, 0.3f},
-    {P_OH_DECAY, 0.517f}, {P_OH_LEVEL, 0.62f}, {P_OH_CHOKE, 0.3f},
+    {P_CH_TUNE, 0.430f}, {P_CH_DECAY, 0.174f}, {P_CH_LEVEL, 0.70f}, {P_CH_CHOKE, 0.3f},
+    {P_OH_DECAY, 0.600f}, {P_OH_LEVEL, 0.62f}, {P_OH_CHOKE, 0.3f},
     {P_CY_TUNE, 0.5f}, {P_CY_TONE, 0.55f}, {P_CY_DECAY, 0.68f}, {P_CY_LEVEL, 0.55f},
     {P_LTC_TUNE, 0.35f}, {P_LTC_DECAY, 0.48f}, {P_LTC_LEVEL, 0.62f},
     {P_MTC_TUNE, 0.45f}, {P_MTC_DECAY, 0.45f}, {P_MTC_LEVEL, 0.62f},
     {P_HTC_TUNE, 0.55f}, {P_HTC_DECAY, 0.42f}, {P_HTC_LEVEL, 0.62f},
     {P_CH_PAN, 0.42f}, {P_OH_PAN, 0.42f}, {P_CY_PAN, 0.6f}, {P_CB_PAN, 0.58f}, {P_CL_PAN, 0.62f},
     {P_LTC_PAN, 0.38f}, {P_MTC_PAN, 0.5f}, {P_HTC_PAN, 0.62f},
+    {P_CP_SOUND, 0.000f},
 };
 // KIT 2: the VCO-kick box (909 style). Punchy kick with its click, brighter
 // snare with more noise, tighter and brighter hats, a long crash.
 const P k909[] = {
     {P_BD1_LEVEL, 0.0f},
-    {P_BD2_TUNE, 0.30f}, {P_BD2_DECAY, 0.521f}, {P_BD2_TONE, 0.62f}, {P_BD2_LEVEL, 0.82f},
-    {P_SD_TUNE, 0.58f}, {P_SD_DETUNE, 0.66f}, {P_SD_PITCH, 0.28f}, {P_SD_TONE, 0.55f}, {P_SD_SNAPPY, 0.78f},
-    {P_SD_TDECAY, 0.256f}, {P_SD_SNDEC, 0.376f}, {P_SD_LEVEL, 0.70f},
+    {P_BD2_TUNE, 0.310f}, {P_BD2_DECAY, 0.591f}, {P_BD2_TONE, 0.700f}, {P_BD2_LEVEL, 0.82f},
+    {P_SD_TUNE, 0.600f}, {P_SD_DETUNE, 0.66f}, {P_SD_PITCH, 0.28f}, {P_SD_TONE, 0.780f}, {P_SD_SNAPPY, 0.700f},
+    {P_SD_TDECAY, 0.416f}, {P_SD_SNDEC, 0.456f}, {P_SD_LEVEL, 0.70f},
     {P_RS_TUNE, 0.55f}, {P_RS_LEVEL, 0.60f},
-    {P_CP_ATTACK, 0.6f}, {P_CP_COUNT, 0.40f}, {P_CP_FILTER, 0.62f}, {P_CP_DECAY, 0.262f}, {P_CP_LEVEL, 0.74f},
+    {P_CP_ATTACK, 0.6f}, {P_CP_COUNT, 0.40f}, {P_CP_FILTER, 0.770f}, {P_CP_DECAY, 0.220f}, {P_CP_LEVEL, 0.74f},
     {P_CL_TUNE, 0.55f}, {P_CL_DECAY, 0.014f}, {P_CL_LEVEL, 0.55f},
     {P_MA_DECAY, 0.040f}, {P_MA_LEVEL, 0.60f},
     {P_CB_TUNE, 0.50f}, {P_CB_DECAY, 0.417f}, {P_CB_LEVEL, 0.50f},
-    {P_CH_TUNE, 0.78f}, {P_CH_DECAY, 0.108f}, {P_CH_LEVEL, 0.66f}, {P_CH_CHOKE, 0.3f},
-    {P_OH_DECAY, 0.540f}, {P_OH_LEVEL, 0.60f}, {P_OH_CHOKE, 0.3f},
+    {P_CH_TUNE, 0.880f}, {P_CH_DECAY, 0.228f}, {P_CH_LEVEL, 0.66f}, {P_CH_CHOKE, 0.3f},
+    {P_OH_DECAY, 0.570f}, {P_OH_LEVEL, 0.60f}, {P_OH_CHOKE, 0.3f},
     {P_CY_TUNE, 0.62f}, {P_CY_TONE, 0.75f}, {P_CY_DECAY, 0.794f}, {P_CY_LEVEL, 0.52f},
-    {P_LTC_TUNE, 0.40f}, {P_LTC_DECAY, 0.479f}, {P_LTC_LEVEL, 0.62f},
-    {P_MTC_TUNE, 0.50f}, {P_MTC_DECAY, 0.449f}, {P_MTC_LEVEL, 0.62f},
-    {P_HTC_TUNE, 0.60f}, {P_HTC_DECAY, 0.416f}, {P_HTC_LEVEL, 0.62f},
+    {P_LTC_TUNE, 0.300f}, {P_LTC_DECAY, 0.589f}, {P_LTC_LEVEL, 0.62f},
+    {P_MTC_TUNE, 0.100f}, {P_MTC_DECAY, 0.479f}, {P_MTC_LEVEL, 0.62f},
+    {P_HTC_TUNE, 0.000f}, {P_HTC_DECAY, 0.516f}, {P_HTC_LEVEL, 0.62f},
     {P_CH_PAN, 0.40f}, {P_OH_PAN, 0.40f}, {P_CY_PAN, 0.62f}, {P_CB_PAN, 0.58f}, {P_CL_PAN, 0.62f},
     {P_LTC_PAN, 0.36f}, {P_MTC_PAN, 0.5f}, {P_HTC_PAN, 0.64f},
+    {P_CP_SOUND, 0.320f},
 };
+// Pitch drop at each hit, semitones (decays with the voice's bend time):
+// kick and toms, fitted to the reference one-shots.
+const float kBend[2][kDrumVoices] = {
+    {5.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 2.f, 2.f, 2.f},
+    {0.f, 26.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 4.f, 4.5f, 2.5f},
+};
+constexpr double kTomShift909 = -0.6;
+
 struct KitDef {
     const P* p;
     int n;
@@ -184,11 +194,16 @@ void Drums::setKit(int kit) noexcept {
     for (int i = 0; i < d.n; ++i) {
         e_->setParamNow(d.p[i].id, d.p[i].u);
     }
-    // the 909 clap: quicker, snappier bursts than the 808's
-    if (kit_ % 2 == 1) {
-        e_->cp().setShape(0.0075, 0.0022);
-    } else {
-        e_->cp().setShape(0.0105, 0.003);
+    // Per-kit voice shapes beyond SHOGUN's parameters (tools/drum_ref_analysis.py):
+    // the 909 clap's quicker bursts, the 909 kick's fast pitch drop, the lower 909 toms.
+    const bool is909 = kit_ % 2 == 1;
+    e_->cp().setShape(is909 ? 0.008 : 0.0105, is909 ? 0.0022 : 0.003);
+    e_->bd2().setBendTau(is909 ? 0.040 : 0.080);
+    for (int t : {LTC, MTC, HTC}) {
+        e_->tom(t).setShift(is909 ? kTomShift909 : 0.0);
+    }
+    for (int v = 0; v < kDrumVoices; ++v) {
+        bend_[v] = kBend[is909 ? 1 : 0][v];
     }
     for (int v = 0; v < kDrumVoices; ++v) {
         applyVoice(v, true);
@@ -229,7 +244,7 @@ void Drums::hit(int voice, float vel) noexcept {
         return;
     }
     const double volts = 5.0 * static_cast<double>(clamp01(vel));
-    e_->trigger(voice, volts, 0.0, vel > 0.9f ? 3 : 2);
+    e_->trigger(voice, volts, bend_[voice], vel > 0.9f ? 3 : 2);
 }
 
 void Drums::render(float* L, float* R, int n, const std::uint32_t* hitMask, const float* vel) noexcept {

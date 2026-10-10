@@ -61,12 +61,16 @@ public:
     float envelope(int voice) const noexcept;  // amplitude envelope, for the screen
     double peakGain() const noexcept { return gain_; }
     shogun::Engine& engine() noexcept { return *e_; }
+    void setBend(int voice, float semis) noexcept {  // tuning tools: override the kit's hit pitch drop
+        if (voice >= 0 && voice < kDrumVoices) bend_[voice] = semis;
+    }
 
 private:
     void applyVoice(int v, bool now) noexcept;
     std::unique_ptr<shogun::Engine> e_;
     int kit_ = 0;
     DrumKnobs knobs_[kDrumVoices];
+    float bend_[kDrumVoices] = {};
     double gain_ = 2.0;  // SHOGUN's mains sit low (voices at -9 dB, noon); LIFT's drum bus gain
 };
 

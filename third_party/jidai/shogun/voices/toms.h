@@ -23,6 +23,8 @@ struct TomVoice : Voice {
   TptOnePole nzLp;
   WaveSlot wave;
   XorShift32 rng;
+  double shiftOct = 0.0;  // LIFT: whole-range transpose in octaves (setShift), for the lower 909 toms
+  void setShift(double oct) { shiftOct = oct; }
   double b = 0.0, aB = 0.0, bend = 0.0, fTune = 100.0, fMul = 1.0, tauR = 0.0759, fBase = 100.0;
   double nzEnv = 0.0, aNz = 0.0, nzAmt = 0.5, last = 0.0, lastNz = 0.0;
   double ring = 1.0, aRing = 0.0, aRel = 0.0;
@@ -64,7 +66,7 @@ struct TomVoice : Voice {
     e.setDecay(tauR, fsE_);
     wave.control(c);
   }
-  double freq() { return clampPitch(fTune * mBend_(bend * b / 12.0, [](double x) { return std::exp2(x); }) * fMul, fMin, fMax); }
+  double freq() { return clampPitch(fTune * mBend_(bend * b / 12.0, [](double x) { return std::exp2(x); }) * fMul * std::exp2(shiftOct), fMin, fMax); }
   void trigger(const VoiceCtx& c, const HitInfo& h) override {
     control(c);
     conga = stepIndex(c.ue[pConga], 2) == 1;

@@ -15,6 +15,11 @@ struct Bd2Voice : Voice {
   Resonator click;
   WaveSlot wave;
   XorShift32 rng;
+  double bendTau = 0.080;  // LIFT: settable pitch-bend time constant (setBendTau)
+  void setBendTau(double s) {
+    bendTau = s;
+    if (fsE_ > 0.0) aB = rcCoef(bendTau, fsE_);
+  }
   double b = 0.0, aB = 0.0, bend = 0.0, fTune = 67.08, fMul = 1.0, tone = 0.5, fBase = 67.08, last = 0.0, lastNz = 0.0;
   bool hold = false;
 
@@ -24,7 +29,7 @@ struct Bd2Voice : Voice {
     wave.prepare(fsE);
     rng.seed(voiceSeed(BD2));
     env_.setAttack(0.0002, fsE);
-    aB = rcCoef(0.080, fsE);
+    aB = rcCoef(bendTau, fsE);
     reset();
   }
   void reset() override {
