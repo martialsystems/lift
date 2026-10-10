@@ -33,6 +33,7 @@ set(LIFT_ROOT ${CMAKE_SOURCE_DIR})
 option(LIFT_APP_ONLY "Configure only the JUCE app and its check" OFF)
 if(LIFT_APP_ONLY)
     enable_testing()
+    include(${CMAKE_SOURCE_DIR}/cmake/LiftEngine.cmake)
     include(${CMAKE_SOURCE_DIR}/cmake/LiftApp.cmake)
     return()
 endif()
@@ -125,25 +126,7 @@ target_link_libraries(lift_vst3_core PUBLIC lift_core)
 target_compile_options(lift_vst3_core PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(lift_vst3_core PUBLIC LIFT_TARGET_VST3=1 LIFT_RADIO=0)
 
-# Instrument DSP core: patch router, synth engines, drums (SHOGUN voices), FX.
-# No JUCE, no GUI, no allocation on the audio path: the hardware-ready part.
-add_library(lift_engine STATIC
-    src/engine/patch.cpp
-    src/engine/synth.cpp
-    src/engine/drums.cpp
-    src/engine/fx.cpp
-    src/engine/instrument.cpp
-    third_party/jidai/shogun/shogun.cpp
-)
-target_include_directories(lift_engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(lift_engine PUBLIC ${CMAKE_SOURCE_DIR}/third_party/jidai/shogun
-    ${CMAKE_SOURCE_DIR}/third_party/jidai/jidai-common/include)
-
-# Offline engine checks: patch connections, feedback stability, drum decays,
-# sequencer timing, synth aliasing, CPU; renders the demo WAVs.
-add_executable(lift_engine_check tests/engine_check.cpp)
-target_link_libraries(lift_engine_check PRIVATE lift_engine)
-add_test(NAME lift_engine_check COMMAND lift_engine_check)
+include(${CMAKE_SOURCE_DIR}/cmake/LiftEngine.cmake)
 
 add_executable(lift_tests tests/test_main.cpp tests/test_pool.cpp tests/test_window.cpp)
 target_compile_options(lift_tests PRIVATE -Wall -Wextra -Werror)

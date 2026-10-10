@@ -18,7 +18,7 @@ jobs:
           cmake -S . -B build -DLIFT_APP_ONLY=ON -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
-        run: cmake --build build --config Release -j 4 --target LiftApp_Standalone LiftApp_VST3 LiftApp_AU lift_panel_check
+        run: cmake --build build --config Release -j 4 --target LiftApp_Standalone LiftApp_VST3 LiftApp_AU lift_panel_check lift_engine_check
       - name: Test
         run: cd build && ctest --output-on-failure -C Release
       - name: Check architectures
