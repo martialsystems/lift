@@ -16,3 +16,9 @@ LIFT uses: SHOGUN's 14 drum voices and `shogun::Engine` (src/engine/drums.*),
 its DSP blocks (PolyBLEP, ZDF ladder, OTA SVF, RC envelopes; src/engine/synth.*),
 and jidai-common's `jcs::Graph` feedback classification and run order
 (src/engine/patch.*), the same approach as Ronin's PatchGraph.
+
+LIFT changes to the vendored copy (kept small, marked "LIFT" in the source):
+- `shogun/voices/cp.h`: `CpVoice::setShape(gap, burst)` makes the clap's burst
+  spacing and burst decay settable (SHOGUN fixes them at 11 ms / 3 ms); the
+  909 kit uses 7.5 ms / 2.2 ms for its tight clap.
+- jidai-common's `dsp/Halfband.h` is also used by the DRIVE effect's 2x oversampling.
