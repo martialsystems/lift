@@ -13,6 +13,7 @@
 // law (1 V/oct, 0 V = C4).
 
 #include "engine/drums.h"
+#include "engine/clipvoice.h"
 #include "engine/fx.h"
 #include "engine/patch.h"
 #include "engine/synth.h"
@@ -90,6 +91,7 @@ public:
 
     PolySynth synth;
     Drums drums;
+    ClipPlayer clips;  // kept sounds on keys / DRUM slices (mixed with the synth, before FX)
     FxRack fx;
     Router router;
 
@@ -171,6 +173,7 @@ private:
     // audio buffers
     float synthBuf_[kBlock] = {};
     float drumL_[kBlock] = {}, drumR_[kBlock] = {};
+    float clipL_[kBlock] = {}, clipR_[kBlock] = {};
     float srcL_[kBlock] = {}, srcR_[kBlock] = {};
     float* outL_ = nullptr;
     float* outR_ = nullptr;

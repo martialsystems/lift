@@ -63,6 +63,20 @@ struct TapeRuntime {
     bool recWas;
     int recCount;
     int recIdx[kRecIdxRing];
+    // The cassette stage (record + playback electronics of tape/engine) is
+    // optional: off, the looper records the source straight (times recGain,
+    // REC LVL) and plays the loops clean. transport_init turns it on (the
+    // tape tests); the instrument starts with it off.
+    bool cassette;
+    float recGain;
+    // Overdub passes, for UNDO: a pass starts when recording starts; the
+    // first write to a frame in a pass saves what was there (passBak) and
+    // marks the frame with the pass id (passMark). Owned by the host; null = off.
+    uint8_t* passMark;
+    float* passBak[2];
+    uint8_t passId;
+    int passTrack;
+    int passCount;  // passes started so far (the panel watches it)
 };
 
 void transport_init(TapeRuntime& rt) noexcept;

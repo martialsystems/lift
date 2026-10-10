@@ -332,6 +332,9 @@ bool PolySynth::anyGate() const noexcept {
     return false;
 }
 
+// measured by `lift_resample_check --calibrate` (two-note chords, default knobs): -17 LUFS each
+float PolySynth::kEngineTrim[kSynthEngines] = {0.962f, 0.681f, 0.577f, 0.596f, 0.958f, 0.532f, 0.441f, 1.f};
+
 void PolySynth::render(float* out, int n, const SynthCv& cv) noexcept {
     if (n > 64) {
         n = 64;
@@ -372,10 +375,10 @@ void PolySynth::render(float* out, int n, const SynthCv& cv) noexcept {
     for (; o < n; ++o) {
         out[o] = 0.f;
     }
-    if (cv.level != 0.f) {
-        const float g = clampf(1.f + cv.level, 0.f, 2.f);
-        for (int i = 0; i < n; ++i) out[i] *= g;
-    }
+    // dry-source level match: every engine sits at the same loudness for the
+    // same playing (tests/resample_check measures it), times the LEVEL column
+    const float g = kEngineTrim[engine_ >= 0 && engine_ < kSynthEngines ? engine_ : 0] * clampf(1.f + cv.level, 0.f, 2.f);
+    for (int i = 0; i < n; ++i) out[i] *= g;
 }
 
 void PolySynth::renderVoice(Voice& v, float* dst, int n2, const SynthCv& cv, int n) noexcept {

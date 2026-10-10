@@ -75,11 +75,13 @@ void Instrument::prepare(double fs) {
     synth.prepare(fs);
     drums.prepare(fs);
     fx.prepare(fs);
+    clips.prepare(fs);
     router.reset();
     reset();
 }
 
 void Instrument::reset() noexcept {
+    clips.reset();
     synth.reset();
     drums.reset();
     fx.reset();
@@ -514,9 +516,11 @@ void Instrument::runNode(int node, TapeHost& tape, const InstrumentCtl& ctl) noe
         break;
     }
     case N_FX: {
+        for (int s = 0; s < kBlock; ++s) clipL_[s] = clipR_[s] = 0.f;
+        clips.render(clipL_, clipR_, kBlock);
         for (int s = 0; s < kBlock; ++s) {
-            srcL_[s] = synthBuf_[s] + drumL_[s];
-            srcR_[s] = synthBuf_[s] + drumR_[s];
+            srcL_[s] = synthBuf_[s] + drumL_[s] + clipL_[s];
+            srcR_[s] = synthBuf_[s] + drumR_[s] + clipR_[s];
         }
         fx.setBypass(!ctl.fxOn);
         fx.process(srcL_, srcR_, kBlock, router.in(C_FXMAC));

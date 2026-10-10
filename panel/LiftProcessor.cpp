@@ -156,6 +156,16 @@ void LiftProcessor::ensureTracks() {
     }
     undo_[0].allocate(static_cast<size_t>(rt_->frames), true);
     undo_[1].allocate(static_cast<size_t>(rt_->frames), true);
+    passMark_.allocate(static_cast<size_t>(rt_->frames), true);
+    passBak_[0].allocate(static_cast<size_t>(rt_->frames), true);
+    passBak_[1].allocate(static_cast<size_t>(rt_->frames), true);
+    rt_->passMark = passMark_.get();
+    rt_->passBak[0] = passBak_[0].get();
+    rt_->passBak[1] = passBak_[1].get();
+    rt_->passId = 0;
+    rt_->cassette = false;  // the looper plays clean; the cassette stage is an option (CHARACTER)
+    capture_.prepare(static_cast<double>(kSampleRate), 60.0);
+    limiter_.prepare(static_cast<double>(kSampleRate));
     tracksReady_ = true;
     uiFrames.store(rt_->frames);
 }
@@ -171,6 +181,7 @@ void LiftProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
         ratio_ = 1.0;
     }
     frac_ = 0.0;
+    setLatencySamples(static_cast<int>(std::lround(eng::MasterLimiter::kLook / ratio_)));  // the master limiter's look-ahead
     std::memset(hist_, 0, sizeof(hist_));
     intPos_ = intLen_ = 0;
     sampleCount_ = 0;
@@ -370,19 +381,71 @@ void LiftProcessor::apply(const Command& c) noexcept {
         break;
     }
     case Cmd::UndoPass:
+        // discard the overdub pass in progress (or the last one): restore
+        // every frame it marked, in slices over the next blocks
+        // (a = pass number from uiPassCount, 0 = the newest; b = its track)
+        rt.recording = false;
+        if (rt.passId != 0 && rt.passMark != nullptr) {
+            undoPassId_ = c.a > 0 ? static_cast<uint8_t>((c.a - 1) % 255 + 1) : rt.passId;
+            undoPassTrack_ = c.a > 0 ? juce::jlimit(0, kTrackCount - 1, c.b) : rt.passTrack;
+            undoPassPos_ = 0;
+        }
         break;
     case Cmd::UndoAudio:
     case Cmd::UndoDrop:
         if (undoStart_ >= 0) {
             for (int c = 0; c < 2; ++c) {
-                float* dst = rt.ch[undoTrack_][c] + undoStart_;
+                float* x = rt.ch[undoTrack_][c];
                 const float* src = undo_[c].get();
                 for (int i = 0; i < undoFrames_; ++i) {
-                    dst[i] = src[i];
+                    const int idx = undoSpan_ > 0 ? undoLo_ + (undoStart_ - undoLo_ + i) % undoSpan_ : undoStart_ + i;
+                    if (idx >= 0 && idx < rt.frames) x[idx] = src[i];
                 }
             }
             undoStart_ = -1;
         }
+        break;
+    case Cmd::DropClip: {
+        // overdub the clip at the playhead, wrapped inside the loop region
+        // (2 ms fades at its edges are in the clip already); UNDO puts it back
+        const eng::Clip* clip = pendingDrop_.exchange(nullptr);
+        const int t = juce::jlimit(0, kTrackCount - 1, c.a);
+        if (clip == nullptr || rt.frames <= 0 || undo_[0] == nullptr) {
+            break;
+        }
+        const bool loop = rt.loopEnd > rt.loopStart;
+        const int lo = loop ? rt.loopStart : 0;
+        const int span = loop ? juce::jmin(rt.loopEnd, rt.frames) - lo : rt.frames;
+        const int start = juce::jlimit(lo, lo + span - 1, static_cast<int>(rt.pos));
+        const int n = juce::jmin(clip->frames(), span);
+        for (int ch = 0; ch < 2; ++ch) {
+            float* x = rt.ch[t][ch];
+            float* bak = undo_[ch].get();
+            const float* src = ch == 0 ? clip->l.data() : clip->r.data();
+            for (int i = 0; i < n; ++i) {
+                const int idx = lo + (start - lo + i) % span;
+                bak[i] = x[idx];
+                x[idx] += src[i];
+            }
+        }
+        undoStart_ = start;
+        undoFrames_ = n;
+        undoTrack_ = t;
+        undoLo_ = lo;
+        undoSpan_ = span;
+        break;
+    }
+    case Cmd::SliceHit:
+        if (const SliceKit* kit = sliceKit_.load(std::memory_order_acquire)) {
+            if (c.a >= 0 && c.a < kit->count) {
+                const int a = kit->start[c.a], b = kit->start[c.a + 1];
+                inst_.clips.trigger(kit->clip->l.data() + a, kit->clip->r.data() + a, b - a, 1.0,
+                                    static_cast<float>(c.b > 0 ? juce::jmin(127, c.b) : 100) / 127.f, 200 + c.a, true);
+            }
+        }
+        break;
+    case Cmd::Cassette:
+        rt.cassette = c.a != 0;
         break;
     case Cmd::LoopSet:
         rt.loopStart = juce::jlimit(0, juce::jmax(0, rt.frames - 1), c.a);
@@ -461,7 +524,7 @@ void LiftProcessor::apply(const Command& c) noexcept {
         break;
     case Cmd::NoteOn: {
         const int vel = c.b > 0 ? juce::jmin(127, c.b) : 100;
-        inst_.noteOn(c.a, static_cast<float>(vel) / 127.f);
+        playNote(c.a, static_cast<float>(vel) / 127.f);
         if (outNoteCount_ < 32) {
             outNotes_[outNoteCount_++] = (c.a & 0x7f) | (vel << 8);
         }
@@ -484,7 +547,7 @@ void LiftProcessor::apply(const Command& c) noexcept {
         inst_.allOff();
         break;
     case Cmd::NoteOff:
-        inst_.noteOff(c.a);
+        stopNote(c.a);
         if (outNoteCount_ < 32) {
             outNotes_[outNoteCount_++] = c.a >= 0 ? -1 - (c.a & 0x7f) : -1000;
         }
@@ -501,9 +564,9 @@ void LiftProcessor::handleMidiIn(const juce::MidiMessage& m, int samplePos) noex
     } else if (m.isNoteOff() && m.getChannel() == 10) {
         // drums are one-shots
     } else if (m.isNoteOn()) {
-        inst_.noteOn(m.getNoteNumber(), static_cast<float>(m.getVelocity()) / 127.f);
+        playNote(m.getNoteNumber(), static_cast<float>(m.getVelocity()) / 127.f);
     } else if (m.isNoteOff()) {
-        inst_.noteOff(m.getNoteNumber());
+        stopNote(m.getNoteNumber());
     } else if (m.isPitchWheel()) {
         inst_.synth.setBend(2.f * static_cast<float>(m.getPitchWheelValue() - 8192) / 8192.f);
     } else if (m.isController()) {
@@ -570,8 +633,9 @@ void LiftProcessor::handleMidiIn(const juce::MidiMessage& m, int samplePos) noex
 
 // ------------------------------------------------------------------ render
 
-const char* LiftProcessor::audioOpName(int) const noexcept {
-    return "DROP";
+const char* LiftProcessor::audioOpName(int op) const noexcept {
+    static const char* const names[] = {"KEEP", "DROP", "OVERDUB"};
+    return op >= 0 && op < 3 ? names[op] : "AUDIO";
 }
 
 void LiftProcessor::renderInternal(float* outL, float* outR, int m) noexcept {
@@ -588,6 +652,23 @@ void LiftProcessor::renderInternal(float* outL, float* outR, int m) noexcept {
         clearPos_ = end;
         if (clearPos_ >= rt.frames) {
             clearTrack_ = -1;
+        }
+    }
+    if (undoPassPos_ >= 0 && rt.passMark != nullptr) {
+        // UNDO PASS in slices: every frame the pass marked gets its old value back
+        const int end = juce::jmin(rt.frames, undoPassPos_ + 65536);
+        float* xl = rt.ch[undoPassTrack_][0];
+        float* xr = rt.ch[undoPassTrack_][1];
+        for (int i = undoPassPos_; i < end; ++i) {
+            if (rt.passMark[i] == undoPassId_) {
+                xl[i] = rt.passBak[0][i];
+                xr[i] = rt.passBak[1][i];
+                rt.passMark[i] = 0;
+            }
+        }
+        undoPassPos_ = end;
+        if (undoPassPos_ >= rt.frames) {
+            undoPassPos_ = -1;
         }
     }
     // Everything runs in fixed 32-sample blocks (the patch graph's block,
@@ -663,6 +744,15 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     ctl.drumGateMs = drumGateMs.load(std::memory_order_relaxed);
     ctl.arm = arm;
     inst_.block(*this, ctl, outL, outR);
+    // the master safety limiter, then the always-on capture (what you hear)
+    limiter_.process(outL, outR, eng::kBlock);
+    capture_.write(outL, outR, eng::kBlock);
+    uiLimiterGr.store(limiter_.gainReduction(), std::memory_order_relaxed);
+    if (rt.passCount != lastPass_) {
+        lastPass_ = rt.passCount;
+        recCapStart.store(capture_.written() - eng::kBlock, std::memory_order_release);
+        uiPassCount.store(lastPass_, std::memory_order_release);
+    }
     // per-jack signal level for the BAY screen's travelling dots (fast up, slow down)
     for (int j = 0; j < eng::kJacks; ++j) {
         const float* o = inst_.router.out(j);
@@ -803,6 +893,7 @@ void LiftProcessor::mixBlock(const eng::TapeMixIo& io, int m) noexcept {
             lastBias_ = b;
             lastDrive_ = d;
         }
+        rt.recGain = juce::jlimit(0.f, 2.5f, d / 1.8f);  // REC LVL without the cassette stage: plain gain, unity at the default
     }
     tape_mix(rt, inL, inR, outL, outR, io.send, m);
     // SCRUB by hand while the transport is stopped: the heads read the tape
@@ -839,9 +930,17 @@ void LiftProcessor::mixBlock(const eng::TapeMixIo& io, int m) noexcept {
         resample_[static_cast<size_t>(i)] = 0.5f * (outL[i] + outR[i]);
     }
     // source monitor through the record electronics (REC LVL, BIAS)
+    // (no cassette stage: the source straight, at REC LVL)
     float* ml = monL_.get();
     float* mr = monR_.get();
-    tape_engine_record(monitor_, sl, sr, ml, mr, m);
+    if (rt.cassette) {
+        tape_engine_record(monitor_, sl, sr, ml, mr, m);
+    } else {
+        for (int i = 0; i < m; ++i) {
+            ml[i] = rt.recGain * sl[i];
+            mr[i] = rt.recGain * sr[i];
+        }
+    }
     for (int i = 0; i < m; ++i) {
         outL[i] += ml[i];
         outR[i] += mr[i];

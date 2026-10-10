@@ -61,6 +61,8 @@ public:
     float envelope(int voice) const noexcept;  // amplitude envelope, for the screen
     double peakGain() const noexcept { return gain_; }
     shogun::Engine& engine() noexcept { return *e_; }
+    // Output trim per kit (linear): the kits' patterns are level-matched dry.
+    static double kKitTrim[kKits];
     // SLICE jack: transpose one voice (volts, 1 V/oct through the kit's tune
     // parameter; re-applied only when it moves).
     void setTranspose(int voice, float volts) noexcept;

@@ -99,6 +99,13 @@ void transport_init(TapeRuntime& rt) noexcept {
     tape_engine_init(rt.engine);
     transport_bind_character(rt, 0);
     transport_reset_filters(rt);
+    rt.cassette = true;
+    rt.recGain = 1.f;
+    rt.passMark = nullptr;
+    rt.passBak[0] = rt.passBak[1] = nullptr;
+    rt.passId = 0;
+    rt.passTrack = 0;
+    rt.passCount = 0;
 }
 
 void transport_bind_character(TapeRuntime& rt, int index) noexcept {

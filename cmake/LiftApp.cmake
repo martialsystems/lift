@@ -22,6 +22,8 @@ set(LIFT_ENGINE_SOURCES
     ${LIFT_ROOT}/src/engine/drums.cpp
     ${LIFT_ROOT}/src/engine/fx.cpp
     ${LIFT_ROOT}/src/engine/instrument.cpp
+    ${LIFT_ROOT}/src/engine/resample.cpp
+    ${LIFT_ROOT}/src/engine/clipvoice.cpp
     ${LIFT_ROOT}/third_party/jidai/shogun/shogun.cpp
 )
 set(LIFT_ENGINE_INCLUDES ${LIFT_ROOT}/third_party/jidai/shogun ${LIFT_ROOT}/third_party/jidai/jidai-common/include)
@@ -33,6 +35,7 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/PanelRender.cpp
     ${LIFT_ROOT}/panel/LiftShift.cpp
     ${LIFT_ROOT}/panel/LiftMatrix.cpp
+    ${LIFT_ROOT}/panel/LiftResample.cpp
     ${LIFT_ROOT}/panel/LiftProcessor.cpp
     ${LIFT_ROOT}/panel/LiftSlots.cpp
     ${LIFT_ROOT}/panel/SlotStore.cpp

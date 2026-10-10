@@ -17,6 +17,7 @@
 struct TapeRuntime;
 #include "tape/engine.h"
 #include "engine/instrument.h"
+#include "engine/resample.h"
 
 namespace lift {
 
@@ -53,8 +54,11 @@ enum class Cmd : uint8_t {
     DrumKnob,    // a = voice, b = 0 pitch / 1 choke / 2 decay, v = 0..1
     FxType,      // a = effect (eng::FxType)
     AllNotesOff, // every synth voice, now
-    UndoPass,    // discard the overdub pass in progress
-    UndoAudio,   // a = audio op id: undo that keep / drop / overdub
+    UndoPass,    // discard an overdub pass: a = pass number (0 = the one in progress / newest), b = track
+    UndoAudio,   // undo the last DROP onto a loop (same as UndoDrop)
+    DropClip,    // a = track: overdub the pending clip (pendingDrop_) at the playhead, wrapped in the loop
+    SliceHit,    // a = slice (DRUM screen keys with a slice kit loaded), b = velocity
+    Cassette,    // a = 1 the cassette stage on (record + playback electronics), 0 off
 };
 
 struct Command {
@@ -111,6 +115,34 @@ public:
     std::atomic<float> liftBack{4.f};  // LIFT encoder: seconds of the capture buffer the next LIFT keeps
     bool overdubbing() const noexcept { return uiRecording.load(std::memory_order_relaxed); }
     const char* audioOpName(int op) const noexcept;
+
+    // ---- resampling (P3): docs/SIGNAL-ORDER.md, src/engine/resample.h ----
+    // Every keep is trimmed (loudness to eng::kTargetLufs, true-peak limited)
+    // and comes with its default selection. Message thread.
+    using ClipPtr = std::shared_ptr<const eng::Clip>;
+    ClipPtr keepLast(double seconds);                         // LIFT: the last N s heard
+    ClipPtr keepRange(std::int64_t from, std::int64_t to);    // REC: one pass, capture frames
+    ClipPtr keepTracks();                                     // SHIFT+LIFT: the four loops' sum
+    ClipPtr makeClip(std::vector<float> l, std::vector<float> r, bool loop);
+    float preKeepLufs(double seconds) const noexcept { return capture_.loudness(seconds); }
+    std::int64_t captureNow() const noexcept { return capture_.written(); }
+    const eng::CaptureRing& capture() const noexcept { return capture_; }
+    std::atomic<std::int64_t> recCapStart{-1};   // capture frame where the current REC pass began
+    // places (the audio thread reads raw pointers; live_ keeps every placed clip alive)
+    void dropToLoop(const ClipPtr& c, int track);
+    void setKeysClip(const ClipPtr& c);          // null: the synth plays the keys again
+    void setKeyClip(int note, const ClipPtr& c); // one key plays it as a one-shot (drum sound)
+    void setSliceKit(const ClipPtr& c, int slices);  // DRUM keys play up to 24 slices
+    void setAudition(const ClipPtr& c);          // SELECT open: the keys audition the selection
+    void addToPool(const ClipPtr& c) { pool_.push_back(c); }
+    const std::vector<ClipPtr>& pool() const noexcept { return pool_; }
+    bool sliceKitLoaded() const noexcept { return sliceKit_.load() != nullptr; }
+    ClipPtr slotClip() const;                    // the clip a loaded slot carried (newest keep)
+    // Standalone export: the clip, T1-T4 and the master (the capture: what
+    // you heard) as 24-bit WAV at the tape rate (48 kHz) into `folder`.
+    bool exportWavs(const juce::File& folder, const ClipPtr& clip, juce::StringArray* written = nullptr);
+    std::atomic<int> uiPassCount{0};    // overdub passes started (the panel's history follows it)
+    std::atomic<float> uiLimiterGr{0.f};
     std::atomic<float> bias{0.45f};    // BIAS knob, 0..1
     std::atomic<float> drive{1.8f};    // REC LVL knob mapped to drive
     PatchBayModel patch;
@@ -276,6 +308,32 @@ private:
     juce::HeapBlock<float> zero_;
     juce::HeapBlock<float> resample_;   // last chunk of tape output, for RESAMPLE
     juce::HeapBlock<float> undo_[2];    // what the last DROP wrote over
+    int undoLo_ = 0, undoSpan_ = 0;     // the loop region it wrapped in
+    juce::HeapBlock<uint8_t> passMark_; // overdub pass marks / backup (TapeRuntime::passMark)
+    juce::HeapBlock<float> passBak_[2];
+    int undoPassPos_ = -1;
+    int lastPass_ = 0;              // UNDO PASS restoring in slices
+    uint8_t undoPassId_ = 0;
+    int undoPassTrack_ = 0;
+    eng::CaptureRing capture_;
+    eng::MasterLimiter limiter_;
+    std::atomic<const eng::Clip*> pendingDrop_{nullptr};
+    std::atomic<const eng::Clip*> keysClip_{nullptr};
+    std::atomic<const eng::Clip*> audition_{nullptr};
+    std::atomic<const eng::Clip*> keyClip_[128] = {};
+    struct SliceKit {
+        ClipPtr clip;
+        int start[25] = {};
+        int count = 0;
+    };
+    std::atomic<const SliceKit*> sliceKit_{nullptr};
+    std::vector<std::shared_ptr<const SliceKit>> liveKits_;
+    std::vector<ClipPtr> live_;         // placed clips stay alive (until the editor closes the session)
+    std::vector<ClipPtr> pool_;
+    int nextClipId_ = 1;
+    void keepAlive(const ClipPtr& c);
+    void playNote(int note, float vel) noexcept;
+    void stopNote(int note) noexcept;
     int undoStart_ = -1;
     int undoFrames_ = 0;
     int undoTrack_ = 0;

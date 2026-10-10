@@ -2,6 +2,8 @@
 
 #include "audio/process_block.h"
 
+#include <cstring>
+
 #include <cmath>
 
 namespace {
@@ -139,6 +141,13 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
     if (rt.recording) {
         if (!rt.recWas) {
             rt.recCount = 0;
+            // a new overdub pass
+            rt.passCount += 1;
+            rt.passTrack = rt.arm;
+            rt.passId = static_cast<uint8_t>((rt.passCount - 1) % 255 + 1);  // 1..255, never 0
+            if (rt.passId == 1 && rt.passCount > 1 && rt.passMark != nullptr) {
+                std::memset(rt.passMark, 0, static_cast<size_t>(rt.frames));  // ids wrapped: old marks go
+            }
         }
         for (int i = 0; i < m; ++i) {
             const float t = rt.resampleInput ? tick[i] : 0.f;
@@ -151,10 +160,24 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
                 srcR[i] += destR[idx];
             }
         }
-        tape_engine_record(rt.engine, srcL, srcR, recL, recR, m);
+        if (rt.cassette) {
+            tape_engine_record(rt.engine, srcL, srcR, recL, recR, m);
+        } else {
+            // no cassette stage: the source straight onto the loop at REC LVL
+            for (int i = 0; i < m; ++i) {
+                const int idx = capture[i];
+                const float t = rt.resampleInput ? tick[i] : 0.f;
+                const float il = (inL != nullptr ? inL[i] : 0.f) + t;
+                const float ir = (inR != nullptr ? inR[i] : 0.f) + t;
+                const bool od = rt.overdub && canWrite && idx >= 0 && idx < rt.frames;
+                recL[i] = (od ? destL[idx] : 0.f) + rt.recGain * il;
+                recR[i] = (od ? destR[idx] : 0.f) + rt.recGain * ir;
+            }
+        }
     }
+    const bool keepPass = rt.passMark != nullptr && rt.passBak[0] != nullptr && rt.passTrack == rt.arm;
     rt.recWas = rt.recording;
-    const int lat = tape_engine_latency(rt.engine);
+    const int lat = rt.cassette ? tape_engine_latency(rt.engine) : 0;
     for (int i = 0; i < m; ++i) {
         if (rt.recording) {
             rt.recIdx[rt.recCount & kRecMask] = capture[i];
@@ -163,6 +186,11 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
             if (from >= 0) {
                 const int idx = rt.recIdx[from & kRecMask];
                 if (canWrite && idx >= 0 && idx < rt.frames) {
+                    if (keepPass && rt.passMark[idx] != rt.passId) {
+                        rt.passBak[0][idx] = destL[idx];
+                        rt.passBak[1][idx] = destR[idx];
+                        rt.passMark[idx] = rt.passId;
+                    }
                     destL[idx] = recL[i];
                     destR[idx] = recR[i];
                 } else {
@@ -199,9 +227,11 @@ void tape_mix(TapeRuntime& rt, const float* inL, const float* inR, float* outL, 
         }
         // Every loop shares the tape path, so the playback chain runs once on
         // the mix, at the motor's state for this sample.
-        rt.engine.ramp = rt.blkRamp[i];
-        rt.engine.speedNow = rt.blkSpeed[i];
-        tape_engine_play(rt.engine, sumL, sumR);
+        if (rt.cassette) {
+            rt.engine.ramp = rt.blkRamp[i];
+            rt.engine.speedNow = rt.blkSpeed[i];
+            tape_engine_play(rt.engine, sumL, sumR);
+        }
         if (!rt.resampleInput) {
             sumL += tick[i];
             sumR += tick[i];

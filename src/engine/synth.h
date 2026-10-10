@@ -66,6 +66,8 @@ public:
     float mod() const noexcept { return mod_; }
 
     struct Voice;
+    // Output trim per engine (linear), so the engines are level-matched dry.
+    static float kEngineTrim[kSynthEngines];
 
 private:
     void renderVoice(Voice& v, float* dst, int n2, const SynthCv& cv, int n) noexcept;

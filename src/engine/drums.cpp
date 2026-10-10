@@ -239,6 +239,9 @@ void Drums::applyVoice(int v, bool now) noexcept {
     set(kChokeParam[v], k.choke);
 }
 
+// measured by `lift_resample_check --calibrate` (each kit's pattern, dry): -17 LUFS each
+double Drums::kKitTrim[kKits] = {1.037, 0.6283, 1.037, 0.6283, 1.037, 0.6283, 1.037, 0.6283};
+
 void Drums::setTranspose(int voice, float volts) noexcept {
     if (voice < 0 || voice >= kDrumVoices) {
         return;
@@ -269,8 +272,8 @@ void Drums::render(float* L, float* R, int n, const std::uint32_t* hitMask, cons
             }
         }
         e_->processSample();
-        L[i] = static_cast<float>(e_->mainL() * gain_);
-        R[i] = static_cast<float>(e_->mainR() * gain_);
+        L[i] = static_cast<float>(e_->mainL() * gain_ * kKitTrim[kit_]);
+        R[i] = static_cast<float>(e_->mainR() * gain_ * kKitTrim[kit_]);
     }
 }
 
