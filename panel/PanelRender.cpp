@@ -327,6 +327,15 @@ void LiftPanel::frame(double dt) {
     advance(dt);
     inFrame_ = false;
     refreshParts();
+    // idle frames prepare the greyed cables, so picking one up costs no frame
+    if (!drag_.active) {
+        for (auto& kv : cableSprites_) {
+            if (!kv.second.gray.isValid()) {
+                makeGray(kv.second);
+                break;
+            }
+        }
+    }
     // A real display: it refreshes at a fixed rate, never faster, whatever
     // the host display runs at (ProMotion 120 Hz), and only when something on
     // it changed.
@@ -357,12 +366,12 @@ void LiftPanel::ensureArt(float dps) {
         // the art covers the canvas exactly: map it to whole device pixels
         const float sx = static_cast<float>(kW) * dps, sy = static_cast<float>(kH) * dps;
         const juce::Image fit = boxResample(src, juce::roundToInt(sx), juce::roundToInt(sy));
-        art_ = juce::Image(juce::Image::ARGB, w, h, false);
+        art_ = juce::Image(juce::Image::RGB, w, h, false);
         Graphics ag(art_);
         ag.fillAll(hex(0xc2bdb3));
         ag.drawImageAt(fit, 0, 0);
     } else {
-        art_ = juce::Image(juce::Image::ARGB, w, h, false);
+        art_ = juce::Image(juce::Image::RGB, w, h, false);
         Graphics ag(art_);
         ag.fillAll(hex(0xc2bdb3));
         ag.addTransform(AffineTransform::translation(kDevX, kDevY).scaled(dps));
@@ -424,6 +433,9 @@ void LiftPanel::paintKnob(Graphics& g, float phys, int i) {
     if (K.dps != dps) {
         K.dps = dps;
         K.v = -1.f;
+        for (auto& r : K.recent) {
+            r = {-1.f, {}};
+        }
         K.org = {static_cast<int>(std::floor((org.x - 14.f) * dps)), static_cast<int>(std::floor((org.y - 14.f) * dps))};
         const int sz = static_cast<int>(std::ceil(168.f * dps)) + 2;
         const auto tf = AffineTransform::translation(org.x, org.y).scaled(dps).translated(static_cast<float>(-K.org.x),
@@ -441,25 +453,51 @@ void LiftPanel::paintKnob(Graphics& g, float phys, int i) {
             cg.addTransform(tf);
             drawKnobCap(cg);
         }
+        K.contact = juce::Image(juce::Image::ARGB, static_cast<int>(std::ceil(160.f * dps)), static_cast<int>(std::ceil(160.f * dps)), true);
+        {
+            Graphics sg(K.contact);
+            sg.addTransform(AffineTransform::translation(10.f, 10.f).scaled(dps));
+            drawKnobContact(sg);
+        }
     }
     if (K.v != v) {
         K.v = v;
-        const auto tf = AffineTransform::translation(org.x, org.y).scaled(dps).translated(static_cast<float>(-K.org.x),
-                                                                                          static_cast<float>(-K.org.y));
-        K.img.clear(K.img.getBounds());
-        Graphics kg(K.img);
-        {
-            Graphics::ScopedSaveState s(kg);
-            kg.addTransform(tf);
-            drawKnobTicks(kg, v);
+        bool found = false;
+        for (auto& r : K.recent) {
+            if (r.first == v && r.second.isValid()) {
+                K.img = r.second;
+                found = true;
+                break;
+            }
         }
-        kg.drawImageAt(K.skirt, 0, 0);
-        {
-            Graphics::ScopedSaveState s(kg);
-            kg.addTransform(tf);
-            drawKnobBody(kg, i, v);
+        if (!found) {
+            K.img = juce::Image(juce::Image::ARGB, K.skirt.getWidth(), K.skirt.getHeight(), true);
+            const auto tf = AffineTransform::translation(org.x, org.y).scaled(dps).translated(static_cast<float>(-K.org.x),
+                                                                                              static_cast<float>(-K.org.y));
+            Graphics kg(K.img);
+            {
+                Graphics::ScopedSaveState s(kg);
+                kg.addTransform(tf);
+                drawKnobTicks(kg, v);
+            }
+            kg.drawImageAt(K.skirt, 0, 0);
+            {
+                // the cached contact shadow, turned with the body; its offset stays to the light
+                const float rad = (-135.f + v * 270.f) * juce::MathConstants<float>::pi / 180.f;
+                Graphics::ScopedSaveState s(kg);
+                kg.setImageResamplingQuality(Graphics::mediumResamplingQuality);
+                kg.drawImageTransformed(K.contact, AffineTransform::scale(1.f / dps)
+                                                       .translated(-10.f, -10.f)
+                                                       .rotated(rad, 70.f, 70.f)
+                                                       .translated(2.f, 3.f)
+                                                       .followedBy(tf));
+                kg.addTransform(tf);
+                drawKnobBody(kg, i, v, false);
+            }
+            kg.drawImageAt(K.cap, 0, 0);
+            K.recent[static_cast<size_t>(K.next)] = {v, K.img};
+            K.next = (K.next + 1) % static_cast<int>(K.recent.size());
         }
-        kg.drawImageAt(K.cap, 0, 0);
     }
     g.drawImageTransformed(K.img, AffineTransform::translation(static_cast<float>(K.org.x), static_cast<float>(K.org.y)).scaled(1.f / phys));
 }
@@ -560,7 +598,7 @@ void LiftPanel::paint(Graphics& g) {
 
 void LiftPanel::renderFb() {
     if (!fb_.isValid()) {
-        fb_ = juce::Image(juce::Image::ARGB, kFbW, kFbH, false);
+        fb_ = juce::Image(juce::Image::RGB, kFbW, kFbH, false);  // opaque: blits are copies
     }
     Graphics fg(fb_);
     const float k = static_cast<float>(kFbW) / 600.f;
@@ -582,6 +620,20 @@ void LiftPanel::paintScreenLayer(Graphics& g) {
 }
 
 // ------------------------------------------------------------------ cables
+
+// greyed copy: the CSS grayscale(1) brightness(.8) of the prototype
+void LiftPanel::makeGray(CableSprite& cs) {
+    cs.gray = cs.img.createCopy();
+    juce::Image::BitmapData bd(cs.gray, juce::Image::BitmapData::readWrite);
+    for (int y = 0; y < bd.height; ++y) {
+        for (int x = 0; x < bd.width; ++x) {
+            auto* px = reinterpret_cast<juce::PixelARGB*>(bd.getPixelPointer(x, y));
+            const float l = 0.8f * (0.2126f * px->getRed() + 0.7152f * px->getGreen() + 0.0722f * px->getBlue());
+            const auto v = static_cast<juce::uint8>(juce::jmin(static_cast<float>(px->getAlpha()), l + 0.5f));
+            px->setARGB(px->getAlpha(), v, v, v);
+        }
+    }
+}
 
 // The settled cables, composed from one cached image per cable (its look at
 // its jacks and stack levels). Picking a cable up only re-composes them
@@ -624,16 +676,7 @@ void LiftPanel::buildCableImage(float phys) {
         CableSprite& cs = it->second;
         cs.used = true;
         if (aside && !cs.gray.isValid()) {
-            cs.gray = cs.img.createCopy();
-            juce::Image::BitmapData bd(cs.gray, juce::Image::BitmapData::readWrite);
-            for (int y = 0; y < bd.height; ++y) {
-                for (int x = 0; x < bd.width; ++x) {
-                    auto* px = reinterpret_cast<juce::PixelARGB*>(bd.getPixelPointer(x, y));
-                    const float l = 0.8f * (0.2126f * px->getRed() + 0.7152f * px->getGreen() + 0.0722f * px->getBlue());
-                    const auto v = static_cast<juce::uint8>(juce::jmin(static_cast<float>(px->getAlpha()), l + 0.5f));
-                    px->setARGB(px->getAlpha(), v, v, v);
-                }
-            }
+            makeGray(cs);
         }
         cg.setOpacity(aside ? 0.5f : 1.f);
         cg.drawImageAt(aside ? cs.gray : cs.img, cs.dev.getX() - cableImgDev_.getX(), cs.dev.getY() - cableImgDev_.getY());

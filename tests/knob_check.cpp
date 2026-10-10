@@ -9,10 +9,10 @@
 #include "LiftProcessor.h"
 #include "PanelData.h"
 
-#include <juce_dsp/juce_dsp.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <functional>
 #include <vector>
@@ -86,22 +86,48 @@ double rms(const std::vector<float>& x, size_t a = 0, size_t b = 0) {
 }
 double db(double a, double b) { return 20.0 * std::log10((a + 1e-9) / (b + 1e-9)); }
 
+// in-place radix-2 FFT (the test keeps off juce_dsp)
+void fft(std::vector<std::complex<double>>& a) {
+    const size_t n = a.size();
+    for (size_t i = 1, j = 0; i < n; ++i) {
+        size_t bit = n >> 1;
+        for (; j & bit; bit >>= 1) {
+            j ^= bit;
+        }
+        j ^= bit;
+        if (i < j) {
+            std::swap(a[i], a[j]);
+        }
+    }
+    for (size_t len = 2; len <= n; len <<= 1) {
+        const double ang = -2.0 * juce::MathConstants<double>::pi / static_cast<double>(len);
+        const std::complex<double> wl(std::cos(ang), std::sin(ang));
+        for (size_t i = 0; i < n; i += len) {
+            std::complex<double> w(1.0, 0.0);
+            for (size_t k = 0; k < len / 2; ++k) {
+                const auto u = a[i + k], v = a[i + k + len / 2] * w;
+                a[i + k] = u + v;
+                a[i + k + len / 2] = u - v;
+                w *= wl;
+            }
+        }
+    }
+}
+
 // average magnitude spectrum (Hann, 4096)
 std::vector<double> spectrum(const std::vector<float>& x) {
-    constexpr int order = 12, n = 1 << order;
-    juce::dsp::FFT fft(order);
+    constexpr size_t n = 4096;
     std::vector<double> acc(n / 2, 0.0);
-    std::vector<float> buf(2 * n);
+    std::vector<std::complex<double>> buf(n);
     int frames = 0;
     for (size_t s = 0; s + n <= x.size(); s += n / 2) {
-        for (int i = 0; i < n; ++i) {
-            const float w = 0.5f - 0.5f * std::cos(2.f * juce::MathConstants<float>::pi * static_cast<float>(i) / n);
-            buf[static_cast<size_t>(i)] = x[s + static_cast<size_t>(i)] * w;
+        for (size_t i = 0; i < n; ++i) {
+            const double w = 0.5 - 0.5 * std::cos(2.0 * juce::MathConstants<double>::pi * static_cast<double>(i) / n);
+            buf[i] = {x[s + i] * w, 0.0};
         }
-        std::fill(buf.begin() + n, buf.end(), 0.f);
-        fft.performFrequencyOnlyForwardTransform(buf.data());
-        for (int i = 0; i < n / 2; ++i) {
-            acc[static_cast<size_t>(i)] += buf[static_cast<size_t>(i)];
+        fft(buf);
+        for (size_t i = 0; i < n / 2; ++i) {
+            acc[i] += std::abs(buf[i]);
         }
         ++frames;
     }

@@ -274,8 +274,15 @@ void LiftPanel::drawKnobSkirt(Graphics& g, int i) {
     g.drawEllipse(16.f, 16.f, 108.f, 108.f, 1.f);
 }
 
+// The pointer body's contact shadow at rest (unrotated, no offset): the
+// renderer caches it once and turns it with the body.
+void LiftPanel::drawKnobContact(Graphics& g) {
+    static const Path body = knobBody();
+    juce::DropShadow(B(0.45f), 4, {}).drawForPath(g, body);
+}
+
 // The pointer body, rotated to the value (continuous: 270 degrees of travel).
-void LiftPanel::drawKnobBody(Graphics& g, int i, float v) {
+void LiftPanel::drawKnobBody(Graphics& g, int i, float v, bool contactShadow) {
     static const Path body = knobBody();
     const float deg = -135.f + v * 270.f;
     const float rad = deg * kPi / 180.f;
@@ -283,9 +290,11 @@ void LiftPanel::drawKnobBody(Graphics& g, int i, float v) {
     const AffineTransform rot = AffineTransform::rotation(rad, 70.f, 70.f);
     Path rb(body);
     rb.applyTransform(rot);
-    Path contact(rb);
-    contact.applyTransform(AffineTransform::translation(2.f, 3.f));
-    juce::DropShadow(B(0.45f), 4, {}).drawForPath(g, contact);
+    if (contactShadow) {
+        Path contact(rb);
+        contact.applyTransform(AffineTransform::translation(2.f, 3.f));
+        juce::DropShadow(B(0.45f), 4, {}).drawForPath(g, contact);
+    }
     fill(g, rb, kc);
     // gloss and rim stay fixed to the light (gradientTransform counter-rotates)
     fill(g, rb, radial(56.f, 50.f, 46.f, 46.f, {{0.f, W(0.55f)}, {0.3f, W(0.12f)}, {0.7f, W(0.f)}, {1.f, B(0.25f)}}));

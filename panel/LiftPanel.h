@@ -297,7 +297,8 @@ private:
     static juce::Point<float> knobOrigin(int i);
     static void drawKnobTicks(juce::Graphics& g, float v);
     static void drawKnobSkirt(juce::Graphics& g, int i);
-    static void drawKnobBody(juce::Graphics& g, int i, float v);
+    static void drawKnobBody(juce::Graphics& g, int i, float v, bool contactShadow = true);
+    static void drawKnobContact(juce::Graphics& g);
     static void drawKnobCap(juce::Graphics& g);
     void paintKnobLabels(juce::Graphics& g);
     static void drawPadBody(juce::Graphics& g, juce::Rectangle<float> r, juce::uint32 fillCol, bool lit);
@@ -340,9 +341,12 @@ private:
     std::unordered_map<juce::uint64, Sprite> sprites_;
     float spriteDps_ = 0.f;
     struct KnobImg {
-        juce::Image img, skirt, cap;
+        juce::Image img, skirt, cap, contact;
         juce::Point<int> org;  // device pixel of the image's top-left
         float v = -1.f, dps = 0.f;
+        // recent values (one per screen: switching screens re-shows them)
+        std::array<std::pair<float, juce::Image>, 5> recent{};
+        int next = 0;
     };
     std::array<KnobImg, 4> knobImg_;
     std::vector<juce::uint64> shown_;   // per part: what is on screen
@@ -360,6 +364,7 @@ private:
     };
     std::unordered_map<juce::uint64, CableSprite> cableSprites_;
     void buildCableImage(float phys);
+    static void makeGray(CableSprite& cs);
     void initLayers();
     void repaint();                                     // state changed: invalidate what changed
     void repaint(juce::Rectangle<int> canvasArea);      // canvas pixels
