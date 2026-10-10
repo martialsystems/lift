@@ -229,7 +229,7 @@ void Drums::applyVoice(int v, bool now) noexcept {
         }
     };
     if (m.pitch >= 0 && !(v == OH)) {  // OH shares CH's tune (one metal bank)
-        set(m.pitch, clamp01(kitValue(kit_, m.pitch) + (k.pitch - 0.5f) * 0.8f));
+        set(m.pitch, clamp01(kitValue(kit_, m.pitch) + (k.pitch - 0.5f) * 0.8f + 0.2f * cvPitch_[v]));
     }
     for (int id : m.decay) {
         if (id >= 0) {
@@ -237,6 +237,18 @@ void Drums::applyVoice(int v, bool now) noexcept {
         }
     }
     set(kChokeParam[v], k.choke);
+}
+
+void Drums::setTranspose(int voice, float volts) noexcept {
+    if (voice < 0 || voice >= kDrumVoices) {
+        return;
+    }
+    volts = volts < -5.f ? -5.f : (volts > 5.f ? 5.f : volts);
+    if (std::fabs(volts - cvPitch_[voice]) < 0.01f) {
+        return;
+    }
+    cvPitch_[voice] = volts;
+    applyVoice(voice, false);
 }
 
 void Drums::hit(int voice, float vel) noexcept {

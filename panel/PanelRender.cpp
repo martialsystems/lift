@@ -119,7 +119,7 @@ void LiftPanel::initLayers() {
 }
 
 Rectangle<float> LiftPanel::screenGlass() {
-    return {kDevX + 60.f, kDevY + 256.f, 600.f, 406.f};
+    return {kDevX + 60.f + kMainDX, kDevY + 256.f + kMainDY, 600.f, 406.f};
 }
 
 juce::Rectangle<int> LiftPanel::toLocal(Rectangle<float> c) const {
@@ -163,24 +163,34 @@ void LiftPanel::repaint(juce::Rectangle<int> canvasArea) {
 }
 
 int LiftPanel::partCount() const {
-    return 1 + 32 + 4 + 24 + 10 + 14 + 10;
+    return 1 + 32 + 4 + 24 + 10 + 14 + 10 + 1;
 }
+
+namespace {
+constexpr int kMatrixPart = 1 + 32 + 4 + 24 + 10 + 14 + 10;
+Rectangle<float> jackBox(char rc, int i) {
+    const auto c = jackCentre(rc, i);
+    return {c.x - 22.f, c.y - 22.f, 44.f, 46.f};
+}
+Rectangle<float> matrixBox() { return {kMxX - 2.f, kMxY - 2.f, 16.f * kMxW + 16.f, 16.f * kMxH + 4.f}; }
+}  // namespace
 
 Rectangle<float> LiftPanel::partRect(int p) const {
     const juce::Point<float> o(kDevX, kDevY);
     if (p == 0) {
         return {0.f, 0.f, static_cast<float>(kW), kDevY};
     }
+    if (p == kMatrixPart) {
+        return matrixBox() + o;
+    }
     p -= 1;
     if (p < 32) {
-        const char rc = p < 16 ? 'o' : 'i';
-        const float cx = jx(p % 16), cy = jy(rc);
-        return Rectangle<float>(cx - 26.f, cy - 26.f, 52.f, 56.f) + o;
+        return jackBox(p < 16 ? 'o' : 'i', p % 16) + o;
     }
     p -= 32;
     if (p < 4) {
         const auto k = knobOrigin(p);
-        return Rectangle<float>(k.x - 14.f, k.y - 14.f, 168.f, 170.f).getUnion({684.f + p * 160.f, 400.f, 160.f, 26.f}) + o;
+        return Rectangle<float>(k.x - 14.f, k.y - 14.f, 168.f, 170.f).getUnion({k.x - 6.f, 528.f, 152.f, 20.f}) + o;
     }
     p -= 4;
     if (p < 24) {
@@ -188,7 +198,7 @@ Rectangle<float> LiftPanel::partRect(int p) const {
     }
     p -= 24;
     if (p < 10) {
-        auto r = memRect(p).expanded(8.f) + o;
+        auto r = memRect(p).expanded(6.f).withTrimmedBottom(-24.f).getUnion(memRect(p).expanded(34.f, 0.f).withHeight(1.f)) + o;
         if (p == kShiftSlot) {
             r = r.getUnion(shiftKeyArea().toFloat());
         }
@@ -206,9 +216,16 @@ Rectangle<float> LiftPanel::partRect(int p) const {
 juce::uint64 LiftPanel::partSig(int p) const {
     juce::uint64 h = 1469598103934665603ULL;
     if (p == 0) {
-        h = mix(h, static_cast<juce::uint64>(color_));
         h = mix(h, stack_ ? 1 : 0);
         return mix(h, shash(info_));
+    }
+    if (p == kMatrixPart) {
+        for (size_t k = 0; k < pins_.size(); ++k) {
+            if (pins_[k] != 0) {
+                h = mix(h, k * 4 + pins_[k]);
+            }
+        }
+        return mix(h, static_cast<juce::uint64>(mxHover_ + 1));
     }
     p -= 1;
     if (p < 32) {
@@ -220,8 +237,8 @@ juce::uint64 LiftPanel::partSig(int p) const {
     }
     p -= 32;
     if (p < 4) {
-        h = mix(h, fbits(encAt(p)));
-        return mix(h, shash(labels()[p]));
+        h = mix(h, fbits(encAt(slotOf(p))));
+        return mix(h, shash(labels()[slotOf(p)]));
     }
     p -= 4;
     if (p < 24) {
@@ -235,7 +252,10 @@ juce::uint64 LiftPanel::partSig(int p) const {
     }
     p -= 24;
     if (p < 10) {
-        h = mix(h, pressedMem_ == p ? 1 : 0);
+        const int f = MEM_FN[p];
+        const bool lit = (f == 1 && loop_) || (f == 2 && shiftActive()) || (f == 3 && rev_) || (f == 5 && rec_) || (f == 7 && playing_);
+        h = mix(h, (pressedMem_ == p ? 1 : 0) | (lit ? 2 : 0));
+        h = mix(h, fbits(mk_[static_cast<size_t>(p)]));
         if (p == kShiftSlot) {
             h = mix(h, fbits(shiftAmt_));
         }
@@ -279,16 +299,16 @@ void LiftPanel::refreshOverlay() {
     const bool moving = drag_.active && drag_.isMove && drag_.started;
     juce::uint64 k = mix(7, cords_.size());
     for (const Cord& c : cords_) {
-        k = mix(k, static_cast<juce::uint64>(((c.o * 16 + c.i) * 8 + c.c) * 2 + (c.st ? 1 : 0)));
+        k = mix(k, static_cast<juce::uint64>((c.o * 16 + c.i) * 2 + (c.st ? 1 : 0)));
     }
     k = mix(k, static_cast<juce::uint64>((drag_.active && drag_.started ? 1 : 0) + (moving ? 2 + 4 * (drag_.n + 1) : 0)));
-    if (k != cableKey_) {
+    if (k != cableKey_ && !ropeAwake_) {
         cableKey_ = k;
         cableImg_ = {};
         Rectangle<float> u;
-        for (const Cord& c : cords_) {
-            const float y1 = jy('o') - 6.f * 4.f, y2 = jy('i') - 6.f * 4.f;
-            const auto b = cableBounds(jx(c.o), y1, jx(c.i), y2).getUnion(cableBounds(jx(c.o), jy('o'), jx(c.i), jy('i')));
+        const auto lv = levels(moving ? drag_.n : -1);
+        for (size_t n = 0; n < cords_.size(); ++n) {
+            const auto b = cableBounds(ropeFor(n, lv).bounds());
             u = u.isEmpty() ? b : u.getUnion(b);
         }
         const auto r = toLocal(u + o).getUnion(cableShown_);
@@ -326,6 +346,7 @@ void LiftPanel::frame(double dt) {
     inFrame_ = true;
     advance(dt);
     inFrame_ = false;
+    stepRopes();
     refreshParts();
     // idle frames prepare the greyed cables, so picking one up costs no frame
     if (!drag_.active) {
@@ -381,8 +402,10 @@ void LiftPanel::ensureArt(float dps) {
     ag.addTransform(AffineTransform::translation(kDevX, kDevY).scaled(dps));
     paintBayStatic(ag, !svg);
     paintBrand(ag);
-    drawScreenBezel(ag, !svg);
     paintMembraneStatic(ag, !svg);
+    // the screen block was drawn for the v2 face: moved as a whole
+    ag.addTransform(AffineTransform::translation(kMainDX, kMainDY));
+    drawScreenBezel(ag, !svg);
 }
 
 // ------------------------------------------------------------------ sprites
@@ -533,9 +556,13 @@ void LiftPanel::paint(Graphics& g) {
         const int i = p % 16;
         const bool picked = pick_.valid() && pick_.r == rc && pick_.i == i;
         const bool ok = !picked && drag_.active && drag_.started && drag_.need == rc;
-        const juce::uint64 var = mix(0x1a, static_cast<juce::uint64>((rc == 'o' ? 1 : 0) | (picked ? 2 : 0) | (ok ? 4 : 0)));
-        const juce::Point<float> c(jx(i), jy(rc));
-        blit(g, phys, var, {c.x - 26.f, c.y - 26.f, 52.f, 56.f}, c, [rc, i, picked, ok](Graphics& sg) { drawJack(sg, rc, i, picked, ok); });
+        const juce::uint64 var = mix(mix(0x1a, static_cast<juce::uint64>((picked ? 2 : 0) | (ok ? 4 : 0))),
+                                     static_cast<juce::uint64>(rc == 'o' ? OUTS[i].sym : INS[i].sym));
+        const juce::Point<float> c = jackCentre(rc, i);
+        blit(g, phys, var, jackBox(rc, i), c, [rc, i, picked, ok](Graphics& sg) { drawJack(sg, rc, i, picked, ok); });
+    }
+    if (hits(partRect(kMatrixPart))) {
+        dev([&] { paintMatrix(g); });
     }
     // knobs
     for (int i = 0; i < 4; ++i) {
@@ -543,7 +570,7 @@ void LiftPanel::paint(Graphics& g) {
             paintKnob(g, phys, i);
         }
     }
-    if (hits(Rectangle<float>(684.f, 400.f, 640.f, 26.f) + o)) {
+    if (hits(Rectangle<float>(668.f, 528.f, 632.f, 20.f) + o)) {
         dev([&] { paintKnobLabels(g); });
     }
     // pads
@@ -566,8 +593,8 @@ void LiftPanel::paint(Graphics& g) {
         blit(g, phys, var, b, L.r.getTopLeft(), [L](Graphics& sg) { drawPadBody(sg, L.r, L.col, L.lit); });
         dev([&] { drawPadText(g, L, 1.f); });
     }
-    // membrane keys (their own light), keyboard
-    if (hits(Rectangle<float>(40.f, 660.f, 640.f, 230.f) + o)) {
+    // push-encoders, keyboard
+    if (hits(Rectangle<float>(30.f, 790.f, 630.f, 200.f) + o)) {
         dev([&] { paintMemKeys(g); });
     }
     for (int p = 0; p < 10; ++p) {
@@ -589,7 +616,7 @@ void LiftPanel::paint(Graphics& g) {
         const auto b = r.withTrimmedTop(-14.f).withTrimmedLeft(-14.f).withTrimmedRight(-14.f).withTrimmedBottom(-28.f);
         blit(g, phys, mix(0x4e, down ? 1 : 0), b, r.getTopLeft(), [r, down](Graphics& sg) { drawNatural(sg, r, down); });
     }
-    if (hits(Rectangle<float>(684.f, 754.f, 640.f, 100.f) + o)) {
+    if (hits(Rectangle<float>(668.f, 874.f, 640.f, 110.f) + o)) {
         dev([&] { paintKeyLabels(g); });
     }
 }
@@ -656,21 +683,22 @@ void LiftPanel::buildCableImage(float phys) {
             continue;
         }
         const Cord& c = cords_[n];
-        const float x1 = jx(c.o), y1 = jy('o') - 6.f * static_cast<float>(lv[n].o);
-        const float x2 = jx(c.i), y2 = jy('i') - 6.f * static_cast<float>(lv[n].i);
-        juce::uint64 key = mix(0xcab1e, static_cast<juce::uint64>(((c.o * 16 + c.i) * 8 + c.c) * 2 + (c.st ? 1 : 0)));
+        const auto e = cordEnds(n, lv);
+        const ui::Rope& R = ropeFor(n, lv);
+        juce::uint64 key = mix(0xcab1e, static_cast<juce::uint64>((c.o * 16 + c.i) * 2 + (c.st ? 1 : 0)));
         key = mix(key, static_cast<juce::uint64>(lv[n].o * 64 + lv[n].i));
+        key = mix(key, R.shapeKey());
         key = mix(key, fbits(dps));
         auto it = cableSprites_.find(key);
         if (it == cableSprites_.end()) {
             CableSprite cs;
-            cs.dev = ((cableBounds(x1, y1, x2, y2) + juce::Point<float>(kDevX, kDevY)) * dps).getSmallestIntegerContainer();
+            cs.dev = ((cableBounds(R.bounds()) + juce::Point<float>(kDevX, kDevY)) * dps).getSmallestIntegerContainer();
             cs.img = juce::Image(juce::Image::ARGB, juce::jmax(1, cs.dev.getWidth()), juce::jmax(1, cs.dev.getHeight()), true);
             Graphics ig(cs.img);
             ig.addTransform(AffineTransform::translation(kDevX, kDevY)
                                 .scaled(dps)
                                 .translated(static_cast<float>(-cs.dev.getX()), static_cast<float>(-cs.dev.getY())));
-            drawSettledCable(ig, x1, y1, x2, y2, c.c, c.st);
+            drawSettledCable(ig, R.path(), e.x1, e.y1, e.x2, e.y2, cableCloth(c.o), c.st, false);
             it = cableSprites_.emplace(key, std::move(cs)).first;
         }
         CableSprite& cs = it->second;
@@ -691,7 +719,12 @@ void LiftPanel::buildCableImage(float phys) {
 void LiftPanel::paintCableLayer(Graphics& g) {
     const float phys = juce::jmax(0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
     const float dps = scale_ * phys;
-    if (!cords_.empty()) {
+    if (!cords_.empty() && ropeAwake_) {
+        // ropes moving (parting around the pointer): drawn live, cheap shadows
+        Graphics::ScopedSaveState s(g);
+        g.addTransform(AffineTransform::translation(kDevX, kDevY).scaled(scale_));
+        paintCables(g);
+    } else if (!cords_.empty()) {
         if (!cableImg_.isValid() || cableDps_ != dps) {
             cableDps_ = dps;
             buildCableImage(phys);

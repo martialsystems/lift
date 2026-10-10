@@ -68,7 +68,7 @@ struct Rig {
                                 down, juce::Time::getCurrentTime(), 1, drag);
     }
     juce::Point<float> knob(int k) const {
-        const auto c = lift::ui::knobCentre(k);
+        const auto c = lift::ui::knobCentre(panel->physicalKnob(k));
         return {lift::ui::kDevX + c.x, lift::ui::kDevY + c.y};
     }
     // press on knob k, drag vertically by dy px (canvas = component px at 100 %)
@@ -400,8 +400,8 @@ void runKnobChecks(const Check& check) {
         // click two step cells on the DRUM screen: the kick plays on them
         const float sc = 600.f / 720.f;
         auto cell = [&](int i) {
-            return juce::Point<float>(lift::ui::kDevX + 60.f + (24.f + static_cast<float>(i) * 42.4f + 18.f) * sc,
-                                      lift::ui::kDevY + 256.f + 32.f + (324.f - 319.f * sc) * 0.5f + (40.f + 160.f) * sc);
+            return juce::Point<float>(lift::ui::kDevX + lift::ui::kMainDX + 60.f + (24.f + static_cast<float>(i) * 42.4f + 18.f) * sc,
+                                      lift::ui::kDevY + lift::ui::kMainDY + 256.f + 32.f + (324.f - 319.f * sc) * 0.5f + (40.f + 160.f) * sc);
         };
         const uint32_t before = r.p.drumPattern[0].load();
         for (int i : {1, 3}) {
@@ -419,7 +419,9 @@ void runKnobChecks(const Check& check) {
         const auto beat = r.run(2.0);
         r.panel->act("stop");
         r.run(0.5);
-        check(rms(beat.l) > 0.02 && (r.p.uiDrumHits.load() & 1u), "the edited pattern plays the kick with the transport");
+        check(rms(beat.l) > 0.02 && (r.p.uiDrumHits.load() & 1u),
+              "the edited pattern plays the kick with the transport (rms " + juce::String(rms(beat.l), 4) + ", hits " +
+                  juce::String(static_cast<int>(r.p.uiDrumHits.load())) + ")");
         // DECAY knob on the kick: long vs short tail on a single hit
         auto hitTail = [&] {
             r.p.send(lift::Cmd::DrumHit, 0, 120);

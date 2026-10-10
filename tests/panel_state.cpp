@@ -143,7 +143,11 @@ lift::UiState oddState() {
     s.character = 3;
     s.color = 4;
     s.stack = true;
-    s.cords = {{3, 4, 5, true}, {7, 1, 2, false}, {3, 9, 0, true}};
+    // cable colours follow the source's type (A PITCH yellow = 2, DRUM red = 1)
+    s.cords = {{3, 4, 2, true}, {7, 1, 1, false}, {3, 9, 2, true}};
+    s.pins[0 * 16 + 4] = 1;
+    s.pins[11 * 16 + 11] = 3;  // PULSE -> REC, inverted
+    s.recJackLifts = true;
     s.learn[50] = 9;
     s.learn[51] = 17;
     return s;
@@ -225,6 +229,9 @@ void runStateChecks(const Check& check) {
             lift::LiftPanel pb(b);
             check(b.loadSlot(7) == lift::LiftProcessor::LoadResult::Ok, "load slot 007 into a fresh instance");
             TapeRuntime& rb = b.runtime();
+            if (!(b.uiState() == odd)) {
+                std::printf("GOT %s\nWANT %s\n", b.uiState().toTree().toXmlString().toRawUTF8(), odd.toTree().toXmlString().toRawUTF8());
+            }
             check(b.uiState() == odd, "every panel setting round-trips (knobs on all screens, pads, arm/mute, shift "
                                       "settings, patch cables/colours/stackables, engine/kit, MIDI learn)");
             check(pb.captureUi() == odd, "the open panel shows the loaded state");
@@ -234,7 +241,7 @@ void runStateChecks(const Check& check) {
                   "engine gets playhead, loop points, arm, mutes and character; transport stopped");
             lift::PatchSnapshot snap;
             b.patch.read(snap);
-            check(snap.count == 3 && snap.cords[2].st && snap.cords[0].c == 5, "patch model republished");
+            check(snap.count == 3 && snap.cords[2].st && snap.cords[0].c == 2 && snap.pins[11 * 16 + 11] == 3, "patch model republished (cables and pins)");
             check(std::abs(b.speed.load() - 0.25f * std::pow(16.f, odd.enc[2][0])) < 1e-5f && b.drumKit.load() == 5 &&
                       b.synthEngine.load() == 3 && b.drumSwing.load() == 45,
                   "knob and shift-layer models reach the engine atomics");

@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,38 +34,71 @@ void check(bool ok, const std::string& what) {
 
 constexpr double kFs = 48000.0;
 
-// Stand-in tape: always recording, head 1 reads 0.25 s behind the record head
-// at the varispeed rate, head 2 another 0.25 s behind; BIAS darkens playback.
+// Stand-in tape: always recording the source; loop 1's head reads 0.25 s
+// behind the record head at its own varispeed rate (SPEED, REVERSE), loop 2's
+// head another 0.25 s behind at the plain rate; BIAS darkens playback.
 struct FakeTape final : TapeHost {
     std::vector<float> buf = std::vector<float>(1 << 18, 0.f);
     int w = 0;
     double r = -12000.0;
     float lp = 0.f;
-    void tapeBlock(const float* srcL, const float* srcR, const float* speedCv, bool, bool reverse, const float* biasCv,
-                   float* outL, float* outR, float* head1, float* head2, int n) noexcept override {
+    float h1[kBlock] = {};
+    int recPresses = 0;
+    void transportBlock(float* eoc, int n) noexcept override {
+        for (int i = 0; i < n; ++i) eoc[i] = (w + i) % 24000 < 96 ? 5.f : 0.f;
+    }
+    void headBlock(int t, const float* speedCv, bool rev, const float* scrubCv, float* head, int n) noexcept override {
         const int mask = static_cast<int>(buf.size()) - 1;
+        auto rd = [&](double p) {
+            const double f = std::floor(p);
+            const float a = buf[static_cast<size_t>(static_cast<int>(f) & mask)];
+            const float b = buf[static_cast<size_t>((static_cast<int>(f) + 1) & mask)];
+            return a + static_cast<float>(p - f) * (b - a);
+        };
         for (int i = 0; i < n; ++i) {
-            const float m = 0.5f * (srcL[i] + srcR[i]);
-            buf[static_cast<size_t>(w & mask)] = m;
-            ++w;
-            const double sp = (speedCv != nullptr ? std::exp2(std::clamp(speedCv[i], -36.f, 36.f) / 12.0) : 1.0);
-            r += reverse ? -sp : sp;
-            if (r > w - 64) r = w - 64;
-            if (r < w - 100000) r = w - 100000;
-            auto rd = [&](double p) {
-                const double f = std::floor(p);
-                const float a = buf[static_cast<size_t>(static_cast<int>(f) & mask)];
-                const float b = buf[static_cast<size_t>((static_cast<int>(f) + 1) & mask)];
-                return a + static_cast<float>(p - f) * (b - a);
-            };
-            const float b = biasCv != nullptr ? std::clamp(0.3f + biasCv[i] / 5.f, 0.01f, 1.f) : 0.3f;
-            lp += b * (rd(r) - lp);
-            head1[i] = lp;
-            head2[i] = rd(r - 12000.0);
-            outL[i] = 0.5f * srcL[i] + 0.5f * head1[i];
-            outR[i] = 0.5f * srcR[i] + 0.5f * head1[i];
+            const int wi = w + i;
+            if (t == 0) {
+                const double sp = (speedCv != nullptr ? std::exp2(std::clamp(speedCv[i], -36.f, 36.f) / 12.0) : 1.0);
+                r += rev ? -sp : sp;
+                if (r > wi - 64) r = wi - 64;
+                if (r < wi - 100000) r = wi - 100000;
+                const double sc = scrubCv != nullptr ? 2400.0 * std::clamp(scrubCv[i], -5.f, 5.f) / 5.0 : 0.0;
+                head[i] = h1[i] = rd(r - 2400.0 + sc);
+            } else if (t == 1) {
+                head[i] = rd(static_cast<double>(wi) - 24000.0);
+            } else {
+                head[i] = 0.f;
+            }
         }
     }
+    void inputBlock(const float* l, const float* rr, float* outL, float* outR, int n) noexcept override {
+        for (int i = 0; i < n; ++i) {
+            outL[i] = l != nullptr ? 0.2f * l[i] : 0.f;
+            outR[i] = rr != nullptr ? 0.2f * rr[i] : outL[i];
+        }
+    }
+    void mixBlock(const TapeMixIo& io, int n) noexcept override {
+        const int mask = static_cast<int>(buf.size()) - 1;
+        if (io.recPress) ++recPresses;
+        for (int i = 0; i < n; ++i) {
+            const float m = 0.5f * (io.srcL[i] + io.srcR[i]) + 0.5f * (io.inL[i] + io.inR[i]);
+            buf[static_cast<size_t>(w & mask)] = m;
+            ++w;
+            const float b = io.biasCv != nullptr ? std::clamp(0.3f + io.biasCv[i] / 5.f, 0.01f, 1.f) : 0.3f;
+            lp += b * (h1[i] - lp);
+            io.outL[i] = 0.5f * io.srcL[i] + 0.5f * lp;
+            io.outR[i] = 0.5f * io.srcR[i] + 0.5f * lp;
+            io.send[i] = lp;
+        }
+    }
+};
+
+struct Pin {
+    int r, c, k;  // row 0..15, column 0..15, 1 +100 %, 2 +50 %, 3 -100 %
+};
+struct Patch {
+    std::vector<std::pair<int, int>> cables;
+    std::vector<Pin> pins;
 };
 
 struct Rig {
@@ -81,13 +115,16 @@ struct Rig {
         ctl.kit = kit;
         inst->drums.setKit(kit);
     }
-    void patch(const std::vector<std::pair<int, int>>& cables) {
+    void patch(const Patch& p, int arm = 0) {
         std::vector<int> o, i;
-        for (auto c : cables) {
+        for (auto c : p.cables) {
             o.push_back(c.first);
             i.push_back(c.second);
         }
-        inst->setPatch(planPatch(o.data(), i.data(), static_cast<int>(o.size())));
+        std::uint8_t pins[256] = {};
+        for (auto q : p.pins) pins[q.r * 16 + q.c] = static_cast<std::uint8_t>(q.k);
+        ctl.arm = arm;
+        inst->setPatch(planPatch(o.data(), i.data(), static_cast<int>(o.size()), pins, arm));
     }
     // seconds of audio, stereo interleaved
     std::vector<float> run(double secs) {
@@ -120,86 +157,175 @@ double diffRms(const std::vector<float>& a, const std::vector<float>& b) {
 
 // The scene the patch tests share: the 808 pattern running, a two-note chord
 // held on LOOM (so B PITCH / GATE arpeggiate), the spring on.
-std::vector<float> scene(const std::vector<std::pair<int, int>>& cables, double secs = 3.0) {
+std::vector<float> scene(const Patch& p, double secs = 3.0, int* recPresses = nullptr) {
     Rig r(0);
     r.inst->synth.setEngine(0);
     const float m[4] = {0.35f, 0.5f, 0.48f, 0.55f};
     r.inst->synth.setMacros(m);
-    r.patch(cables);
+    r.patch(p);
     r.inst->noteOn(60, 0.8f);
     r.inst->noteOn(67, 0.8f);
-    return r.run(secs);
+    auto out = r.run(secs);
+    if (recPresses != nullptr) *recPresses = r.tape.recPresses;
+    return out;
 }
 
-const char* const kOutN[kJacks] = {"A PITCH", "A GATE", "B PITCH", "B GATE", "DRUM", "CLOCK", "RESET", "RADIO",
-                                   "LFO", "ENV", "S&H", "VCA", "SLEW", "QUANT", "HEAD 1", "HEAD 2"};
-const char* const kInN[kJacks] = {"PITCH", "GATE", "FM", "CUTOFF", "SLICE", "FX MAC", "CLK", "RST",
-                                  "VCA IN", "VCA CV", "SLEW", "QUANT", "S&H", "SPEED", "REVERSE", "BIAS"};
+const char* const kOutN[kJacks] = {"A GATE", "B GATE", "B PITCH", "A PITCH", "RADIO", "RESET", "CLOCK", "DRUM",
+                                   "HEAD 4", "HEAD 3", "HEAD 2", "HEAD 1", "SEND", "FX OUT", "MIX R", "MIX L"};
+const char* const kInN[kJacks] = {"PITCH", "QUANT", "GATE", "REC", "REVERSE", "CLK IN", "RST IN", "VCA IN",
+                                  "SPEED", "BIAS", "SCRUB", "SLICE", "AUDIO L", "AUDIO R", "S&H", "SLEW"};
+const char* const kRowN[16] = {"LFO", "LFO 2", "ENV", "ENV 2", "S&H", "RANDOM", "SLEW", "VEL",
+                               "FOLLOW", "QUANT", "STEP", "PULSE", "ACCENT", "EOC", "NOISE", "VCA"};
+const char* const kColN[16] = {"PITCH", "SPEED", "BIAS", "SCRUB", "CUTOFF", "RESO", "FM IDX", "WAVE",
+                               "DECAY", "GATE", "LEVEL", "REC", "G POS", "G SIZE", "FX MAC", "VCA"};
+constexpr int R(int row) { return row - kJacks; }
+constexpr int C(int col) { return col - kJacks; }
+
+std::string nameOf(const Patch& p) {
+    std::string name;
+    for (auto c : p.cables) name += std::string(name.empty() ? "" : " + ") + kOutN[c.first] + " -> " + kInN[c.second];
+    for (auto q : p.pins)
+        name += std::string(name.empty() ? "" : " + ") + "pin " + kRowN[q.r] + " -> " + kColN[q.c] +
+                (q.k == 2 ? " (+50%)" : q.k == 3 ? " (-100%)" : "");
+    return name;
+}
 
 void patchChecks() {
     const auto base = scene({});
     const double ref = rms(base);
     check(ref > 0.01, "scene is audible (rms " + std::to_string(ref) + ")");
-    struct T {
-        std::vector<std::pair<int, int>> c;
-    };
-    const std::vector<T> tests = {
-        {{{O_BPITCH, I_PITCH}}}, {{{O_BGATE, I_GATE}}}, {{{O_DRUM, I_SLICE}}},
-        {{{O_LFO, I_CUTOFF}}}, {{{O_LFO, I_FM}}}, {{{O_LFO, I_PITCH}}}, {{{O_ENV, I_CUTOFF}}},
-        {{{O_SH, I_PITCH}}}, {{{O_CLOCK, I_SH}, {O_SH, I_CUTOFF}}}, {{{O_LFO, I_FXMAC}}}, {{{O_BGATE, I_CLK}}},
-        {{{O_BGATE, I_RST}}}, {{{O_RESET, I_RST}, {O_CLOCK, I_CLK}}}, {{{O_LFO, I_SPEED}}}, {{{O_LFO, I_BIAS}}},
-        {{{O_LFO, I_REVERSE}}}, {{{O_LFO, I_VCAIN}, {O_VCA, I_CUTOFF}}}, {{{O_LFO, I_VCAIN}, {O_LFO, I_VCACV}, {O_VCA, I_FM}}},
-        {{{O_SH, I_SLEW}, {O_SLEW, I_PITCH}}}, {{{O_LFO, I_QUANT}, {O_QUANT, I_PITCH}}}, {{{O_SH, I_QUANT}, {O_QUANT, I_PITCH}}},
-        {{{O_HEAD1, I_FM}}}, {{{O_HEAD2, I_SPEED}}}, {{{O_HEAD1, I_CUTOFF}}}, {{{O_ENV, I_SPEED}}},
+    const std::vector<Patch> tests = {
+        // jack to jack
+        {{{O_BPITCH, I_PITCH}}, {}},
+        {{{O_BGATE, I_GATE}, {O_BPITCH, I_PITCH}}, {}},
+        {{{O_DRUM, I_SLICE}}, {}},
+        {{{O_BGATE, I_CLK}}, {}},
+        {{{O_BGATE, I_RST}}, {}},
+        {{{O_RESET, I_RST}, {O_CLOCK, I_CLK}}, {}},
+        {{{O_BGATE, I_REVERSE}}, {}},
+        {{{O_HEAD2, I_SPEED}}, {}},
+        {{{O_FXOUT, I_BIAS}}, {}},
+        {{{O_HEAD1, I_SCRUB}}, {}},
+        {{{O_FXOUT, I_AUDIOL}}, {}},
+        // pins
+        {{}, {{R(R_LFO), C(C_CUTOFF), 1}}},
+        {{}, {{R(R_LFO), C(C_FM), 1}}},
+        {{}, {{R(R_LFO), C(C_PITCH), 2}}},
+        {{}, {{R(R_ENV), C(C_CUTOFF), 1}}},
+        {{}, {{R(R_ENV2), C(C_CUTOFF), 3}}},
+        {{}, {{R(R_SH), C(C_PITCH), 1}}},
+        {{}, {{R(R_LFO2), C(C_CUTOFF), 1}}},
+        {{}, {{R(R_RANDOM), C(C_CUTOFF), 1}}},
+        {{}, {{R(R_NOISE), C(C_FM), 1}}},
+        {{}, {{R(R_LFO), C(C_FXMAC), 1}}},
+        {{}, {{R(R_LFO), C(C_SPEED), 1}}},
+        {{}, {{R(R_LFO), C(C_BIAS), 1}}},
+        {{}, {{R(R_LFO), C(C_RESO), 1}}},
+        {{}, {{R(R_LFO), C(C_WAVE), 1}}},
+        {{}, {{R(R_LFO), C(C_DECAY), 1}}},
+        {{}, {{R(R_LFO), C(C_LEVEL), 3}}},
+        {{}, {{R(R_LFO), C(C_SCRUB), 1}}},
+        {{}, {{R(R_QUANT), C(C_PITCH), 1}}},              // QUANT normalled from S&H
+        {{}, {{R(R_STEP), C(C_PITCH), 1}, {R(R_PULSE), C(C_GATE), 1}}},  // PULSE plays the synth GATE
+        {{}, {{R(R_EOC), C(C_CUTOFF), 1}}},
+        {{}, {{R(R_VEL), C(C_CUTOFF), 1}}},
+        // module jack in, row out
+        {{{O_BPITCH, I_SLEW}}, {{R(R_SLEW), C(C_PITCH), 1}}},
+        {{{O_CLOCK, I_VCAIN}}, {{R(R_VCA), C(C_CUTOFF), 1}}},
+        {{{O_CLOCK, I_SH}}, {{R(R_SH), C(C_CUTOFF), 1}}},
+        {{{O_BPITCH, I_QUANT}}, {{R(R_QUANT), C(C_PITCH), 1}}},
+        {{{O_FXOUT, I_AUDIOL}}, {{R(R_FOLLOW), C(C_CUTOFF), 3}}},
     };
     for (const auto& t : tests) {
-        const auto a = scene(t.c);
+        const auto a = scene(t);
         const double d = diffRms(a, base);
-        std::string name;
-        for (auto c : t.c) name += std::string(name.empty() ? "" : " + ") + kOutN[c.first] + " -> " + kInN[c.second];
         bool finite = true;
         for (float v : a) finite = finite && std::isfinite(v);
         check(finite && d > 0.02 * ref,
-              name + " changes the audio (" + std::to_string(20.0 * std::log10(std::max(1e-9, d / ref))) + " dB vs the scene)");
+              nameOf(t) + " changes the audio (" + std::to_string(20.0 * std::log10(std::max(1e-9, d / ref))) + " dB vs the scene)");
     }
     // A PITCH -> PITCH is a straight wire by design (the keyboard's own pitch)
-    check(diffRms(scene({{O_APITCH, I_PITCH}}), base) < 1e-3 * ref, "A PITCH -> PITCH is a unity wire (by design)");
-    check(diffRms(scene({{O_AGATE, I_GATE}}), base) < 0.05 * ref,
-          "A GATE -> GATE follows the keyboard's own gate (near unity by design)");
-    {  // RADIO is the one placeholder: its jack is silent
-        check(diffRms(scene({{O_RADIO, I_FM}}), base) < 1e-6, "RADIO -> FM: placeholder, silent (by design)");
+    check(diffRms(scene({{{O_APITCH, I_PITCH}}, {}}), base) < 1e-3 * ref, "A PITCH -> PITCH is a unity wire (the normal)");
+    check(diffRms(scene({{{O_AGATE, I_GATE}}, {}}), base) < 1e-3 * ref, "A GATE -> GATE alone is the normal (keys still play)");
+    check(diffRms(scene({{{O_RADIO, I_AUDIOL}}, {}}), base) < 1e-6, "RADIO: placeholder, silent (by design)");
+    {  // PULSE -> REC presses REC once a step; with nothing patched, never
+        int presses = 0, none = 0;
+        scene({{}, {{R(R_PULSE), C(C_REC), 1}}}, 2.0, &presses);
+        scene({}, 2.0, &none);
+        check(presses >= 12 && none == 0, "pin PULSE -> REC presses REC every step (" + std::to_string(presses) + " in 2 s)");
+        int jack = 0;
+        scene({{{O_BGATE, I_REC}}, {}}, 2.0, &jack);
+        check(jack >= 6, "B GATE -> REC jack presses REC (" + std::to_string(jack) + " in 2 s)");
+    }
+    {  // GATE takes over: B GATE -> GATE plays the synth only on SEQ steps
+        Rig r(0);
+        r.inst->synth.setEngine(0);
+        r.patch({{{O_BGATE, I_GATE}}, {}});
+        check(r.inst->gateTaken(), "B GATE -> GATE takes over the synth's triggers");
+        r.inst->noteOn(60, 0.8f);
+        check(!r.inst->synth.anyGate(), "while GATE is patched a key alone does not play the synth");
+        r.patch({{{O_AGATE, I_GATE}}, {}});
+        check(!r.inst->gateTaken(), "A GATE -> GATE alone is the normal: keys play");
     }
 }
 
+void quantChecks() {
+    // QUANT scales: sweep one octave, count the distinct notes out
+    const int expect[5] = {7, 7, 5, 5, 12};
+    for (int sc = 0; sc < 5; ++sc) {
+        std::set<int> notes;
+        for (int k = 0; k < 240; ++k) {
+            const float v = static_cast<float>(k) / 240.f;  // 0 .. 1 V, one octave
+            notes.insert((static_cast<int>(std::lround(quantize(v, sc, 0) * 12.f)) % 12 + 12) % 12);
+        }
+        check(static_cast<int>(notes.size()) == expect[sc],
+              std::string("QUANT ") + kQuantScaleNames[sc] + ": " + std::to_string(notes.size()) + " notes per octave");
+    }
+    check(std::fabs(quantize(1.f / 12.f, 0, 0) - 0.f) < 1e-6f || std::fabs(quantize(1.f / 12.f, 0, 0) - 2.f / 12.f) < 1e-6f,
+          "QUANT major: C# snaps to C or D");
+    check(std::fabs(quantize(3.f / 12.f, 1, 0) - 3.f / 12.f) < 1e-6f, "QUANT minor keeps the minor third");
+}
+
+// Feedback: only links that close a true graph cycle are delayed and tagged.
 void feedbackChecks() {
-    const std::vector<std::vector<std::pair<int, int>>> loops = {
-        {{O_HEAD2, I_SPEED}},
-        {{O_HEAD1, I_SPEED}, {O_HEAD2, I_BIAS}, {O_HEAD1, I_FXMAC}},
-        {{O_HEAD1, I_VCAIN}, {O_VCA, I_SPEED}, {O_HEAD2, I_FM}, {O_HEAD1, I_CUTOFF}},
+    struct Case {
+        Patch p;
+        int arm;
+        int expectFb;  // tagged links
+        const char* name;
     };
-    const char* names[] = {"HEAD 2 -> SPEED", "HEAD 1 -> SPEED, HEAD 2 -> BIAS, HEAD 1 -> FX MAC",
-                           "HEAD 1 -> VCA -> SPEED, HEAD 2 -> FM, HEAD 1 -> CUTOFF"};
-    for (size_t k = 0; k < loops.size(); ++k) {
+    const std::vector<Case> cases = {
+        {{{{O_HEAD1, I_SPEED}}, {}}, 0, 1, "HEAD 1 -> SPEED, T1 armed (true loop)"},
+        {{{{O_HEAD2, I_SPEED}}, {}}, 0, 0, "HEAD 2 -> SPEED, T1 armed (loop 2 plays loop 1: no loop)"},
+        {{{{O_HEAD2, I_SPEED}}, {}}, 1, 1, "HEAD 2 -> SPEED, T2 armed (true loop)"},
+        {{{{O_HEAD1, I_BIAS}}, {}}, 0, 0, "HEAD 1 -> BIAS (through the tape's delay, no instant loop)"},
+        {{{{O_MIXL, I_AUDIOL}}, {}}, 0, 1, "MIX L -> AUDIO L (mixer howl)"},
+        {{{{O_FXOUT, I_VCAIN}}, {{R(R_VCA), C(C_FXMAC), 1}}}, 0, 1, "FX OUT -> VCA IN + pin VCA -> FX MAC"},
+        {{{{O_FXOUT, I_VCAIN}}, {{R(R_VCA), C(C_VCA), 1}}}, 0, 1, "pin VCA -> VCA with VCA IN patched"},
+        {{{{O_HEAD1, I_VCAIN}}, {{R(R_VCA), C(C_SPEED), 1}}}, 0, 1, "HEAD 1 -> VCA -> SPEED (pin closes it)"},
+        {{{{O_HEAD1, I_SPEED}, {O_HEAD2, I_BIAS}, {O_FXOUT, I_AUDIOL}}, {{R(R_FOLLOW), C(C_FXMAC), 1}}}, 0, 2,
+         "HEAD 1 -> SPEED, HEAD 2 -> BIAS, FX OUT -> AUDIO L + pin FOLLOW -> FX MAC"},
+    };
+    for (const auto& k : cases) {
         Rig r(0);
-        r.patch(loops[k]);
+        r.patch(k.p, k.arm);
         int fb = 0;
         for (int c = 0; c < r.inst->router.plan().count; ++c) fb += r.inst->router.plan().c[c].fb ? 1 : 0;
         r.inst->noteOn(48, 1.f);
         r.inst->noteOn(55, 1.f);
-        const auto a = r.run(30.0);
+        const auto a = r.run(k.expectFb > 0 ? 20.0 : 4.0);
         bool finite = true;
         float pk = 0.f;
         for (float v : a) {
             finite = finite && std::isfinite(v);
             pk = std::max(pk, std::fabs(v));
         }
-        // last 5 s vs first 5 s: no runaway growth
-        const size_t n5 = static_cast<size_t>(5.0 * kFs * 2);
-        const std::vector<float> first(a.begin(), a.begin() + static_cast<long>(n5)), last(a.end() - static_cast<long>(n5), a.end());
+        const size_t n2 = static_cast<size_t>(2.0 * kFs * 2);
+        const std::vector<float> first(a.begin(), a.begin() + static_cast<long>(n2)), last(a.end() - static_cast<long>(n2), a.end());
         const double g = rms(last) / std::max(1e-9, rms(first));
-        check(finite && pk < 4.f && g < 3.0 && fb >= 1,
-              std::string("feedback ") + names[k] + ": 30 s, " + std::to_string(fb) + " delayed cable(s), peak " +
-                  std::to_string(pk) + ", no NaN, end/start rms x" + std::to_string(g));
+        check(finite && pk < 4.f && g < 3.0 && fb == k.expectFb,
+              std::string("feedback ") + k.name + ": " + std::to_string(fb) + " tagged (want " + std::to_string(k.expectFb) +
+                  "), peak " + std::to_string(pk) + ", end/start rms x" + std::to_string(g));
     }
 }
 
@@ -573,6 +699,7 @@ void fxChecks() {
 
 int main() {
     patchChecks();
+    quantChecks();
     feedbackChecks();
     drumChecks();
     sequencerChecks();

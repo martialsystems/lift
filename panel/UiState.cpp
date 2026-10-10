@@ -2,6 +2,8 @@
 
 #include "UiState.h"
 
+#include <cstring>
+
 #include "PanelData.h"
 
 namespace lift {
@@ -38,13 +40,52 @@ bool inSet(int v, std::initializer_list<int> s) {
 
 }  // namespace
 
+namespace {
+// v2 jack names (before the v3.1 jack list and matrix)
+const char* const kV2Outs[16] = {"A PITCH", "A GATE", "B PITCH", "B GATE", "DRUM", "CLOCK", "RESET", "RADIO",
+                                 "LFO",     "ENV",    "S&H",     "VCA",    "SLEW", "QUANT", "HEAD 1", "HEAD 2"};
+const char* const kV2Ins[16] = {"PITCH",  "GATE", "FM IDX", "CUTOFF", "SLICE", "FX MAC", "CLK IN", "RST IN",
+                                "VCA IN", "VCA",  "SLEW",   "QUANT",  "S&H",   "SPEED",  "REVERSE", "BIAS"};
+int findName(const ui::JackDef* list, const char* n) {
+    for (int k = 0; k < 16; ++k) {
+        if (std::strcmp(list[k].n, n) == 0) {
+            return k;
+        }
+    }
+    return -1;
+}
+}  // namespace
+
+// A v2 cable, by name, onto the v3.1 bay: a jack-to-jack cable if both ends
+// still exist, else a +100 % pin if the source became a matrix row and the
+// destination a column. False = it has no v3.1 equivalent (dropped).
+bool UiState::remapV2(Cord& c, std::array<std::uint8_t, 256>& pins) {
+    const char* on = kV2Outs[c.o];
+    const char* in = kV2Ins[c.i];
+    const int o = findName(ui::OUTS, on), i = findName(ui::INS, in);
+    if (o >= 0 && i >= 0) {
+        c.o = o;
+        c.i = i;
+        return true;
+    }
+    const int r = findName(ui::MXR, on), col = findName(ui::MXC, in);
+    if (r >= 0 && col >= 0) {
+        pins[static_cast<size_t>(r * 16 + col)] = 1;
+    }
+    return false;
+}
+
 UiState::UiState() {
     for (int m = 0; m < 5; ++m) {
         for (int i = 0; i < 4; ++i) {
             enc[static_cast<size_t>(m)][static_cast<size_t>(i)] = ui::ENC_DEFAULT[m][i];
         }
     }
-    cords = {{0, 0, 0, false}, {1, 1, 1, false}, {8, 3, 2, false}, {15, 2, 3, false}, {9, 9, 0, false}, {5, 12, 1, false}};
+    // Opening patch: the keyboard into the synth and the clock into CLK IN
+    // (what the normals do anyway, made visible), no pins. The v3.1
+    // prototype also opens with HEAD 1 -> SPEED and MIX L -> AUDIO L, which
+    // bend a fresh loop's pitch; those stay out of the default.
+    cords = {{3, 0, 2, false}, {0, 2, 1, false}, {6, 5, 1, false}};
     learn.fill(-1);
     for (int k = 0; k < eng::kKits; ++k) {
         for (int v = 0; v < eng::kDrumVoices; ++v) {
@@ -106,6 +147,17 @@ juce::ValueTree UiState::toTree() const {
         cs.appendChild(ct, nullptr);
     }
     t.appendChild(cs, nullptr);
+    t.setProperty("jacks", "v31", nullptr);
+    {
+        juce::StringArray pa;
+        for (int k = 0; k < 256; ++k) {
+            if (pins[static_cast<size_t>(k)] != 0) {
+                pa.add(juce::String(k) + ":" + juce::String(static_cast<int>(pins[static_cast<size_t>(k)])));
+            }
+        }
+        t.setProperty("pins", pa.joinIntoString(" "), nullptr);
+    }
+    t.setProperty("recJackLifts", recJackLifts, nullptr);
     juce::StringArray l;
     for (int cc = 0; cc < 128; ++cc) {
         if (learn[static_cast<size_t>(cc)] >= 0) {
@@ -183,9 +235,13 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
     s.character = clampInt(t["character"], 0, 3, s.character);
     s.color = clampInt(t["color"], 0, 5, s.color);
     s.stack = t.getProperty("stack", s.stack);
+    const bool v31 = t["jacks"].toString() == "v31";
     const auto cs = t.getChildWithName("Cords");
     if (cs.isValid()) {
         s.cords.clear();
+        if (!v31) {
+            s.pins.fill(0);  // a v2 state: its routing is rebuilt below
+        }
         for (const auto& ct : cs) {
             if (static_cast<int>(s.cords.size()) >= kMaxCords) {
                 break;
@@ -195,9 +251,24 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
             c.i = clampInt(ct["i"], 0, kJacks - 1, 0);
             c.c = clampInt(ct["c"], 0, 5, 0);
             c.st = ct.getProperty("st", false);
+            if (!v31 && !remapV2(c, s.pins)) {
+                continue;
+            }
+            c.c = ui::cableCloth(c.o);
             s.cords.push_back(c);
         }
     }
+    if (v31) {
+        s.pins.fill(0);
+        for (const auto& pair : split(t["pins"])) {
+            const int k = pair.upToFirstOccurrenceOf(":", false, false).getIntValue();
+            const int v = pair.fromFirstOccurrenceOf(":", false, false).getIntValue();
+            if (k >= 0 && k < 256 && v >= 0 && v <= 3) {
+                s.pins[static_cast<size_t>(k)] = static_cast<std::uint8_t>(v);
+            }
+        }
+    }
+    s.recJackLifts = t.getProperty("recJackLifts", s.recJackLifts);
     for (const auto& pair : split(t["learn"])) {
         const int cc = pair.upToFirstOccurrenceOf(":", false, false).getIntValue();
         const int tg = pair.fromFirstOccurrenceOf(":", false, false).getIntValue();

@@ -8,9 +8,9 @@ ships). The app never parses SVG.
 
     python3 tools/rasterize_art.py [--resvg PATH]
 
-Writes assets/art/case@2x.jpg and case@3x.jpg: the blank case with its three
-recessed panels on the page colour, framed to the panel canvas (1432 x 996:
-the face sits at (36, 87.5), the SVG's own origin is at (16, 75.5)). The app
+Writes assets/art/case@2x.jpg and case@3x.jpg: the v3.1 case (LIFT-v3.html)
+with its recessed black patch panel and the screen well, on the page colour,
+drawn on the panel canvas itself (1360 x 1106; the face sits at (16, 76)). The app
 picks the smallest that covers the window's device scale and area-averages
 it down once per window size.
 """
@@ -24,23 +24,17 @@ import tempfile
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "assets", "art-src", "case-blank.svg")
+SRC = os.path.join(ROOT, "assets", "art-src", "case-v31.svg")
 OUT = os.path.join(ROOT, "assets", "art")
-CANVAS_W, CANVAS_H = 1432, 996
+CANVAS_W, CANVAS_H = 1360, 1106
 PAGE = "#c2bdb3"
 
 
 def framed_svg(scale):
     s = open(SRC, encoding="utf-8").read()
     root = re.search(r"<svg[^>]*>", s).group(0)
-    new_root = ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="-16 -75.5 %d %d">'
-                % (CANVAS_W * scale, CANVAS_H * scale, CANVAS_W, CANVAS_H))
-    bg = '<rect x="-16" y="-75.5" width="%d" height="%d" fill="%s"/>' % (CANVAS_W, CANVAS_H, PAGE)
-    s = s.replace(root, new_root, 1)
-    # the background goes first, after <defs>
-    i = s.find("</defs>")
-    i = i + len("</defs>") if i >= 0 else len(new_root)
-    return s[:i] + bg + s[i:]
+    return s.replace(root, '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">'
+                     % (CANVAS_W * scale, CANVAS_H * scale, CANVAS_W, CANVAS_H), 1)
 
 
 def main():

@@ -45,6 +45,7 @@ LiftPanel::LiftPanel(LiftProcessor& p) : proc_(p) {
     setWantsKeyboardFocus(true);
     setOpaque(true);
     buildGrain();
+    buildRopeScene();
     publishPatch();
     syncEngine();
     an_.hitT.fill(-10.0);
@@ -93,7 +94,7 @@ void LiftPanel::syncEngine() {
 }
 
 void LiftPanel::publishPatch() {
-    proc_.patch.publish(cords_);
+    proc_.patch.publish(cords_, pins_, arm_);
 }
 
 juce::StringArray LiftPanel::labels() const {
@@ -183,7 +184,7 @@ LiftPanel::JackId LiftPanel::jackAt(juce::Point<float> d) const {
     for (int r = 0; r < 2; ++r) {
         const char rc = r == 0 ? 'o' : 'i';
         for (int i = 0; i < 16; ++i) {
-            if (d.getDistanceFrom({jx(i), jy(rc)}) <= 16.f) {
+            if (d.getDistanceFrom(jackCentre(rc, i)) <= kJackR + 3.f) {
                 return {rc, i};
             }
         }
@@ -191,13 +192,24 @@ LiftPanel::JackId LiftPanel::jackAt(juce::Point<float> d) const {
     return {};
 }
 
+// The macro slot of the knob under the pointer (the knobs are remapped per
+// screen by colour: knobSlot), -1 none.
 int LiftPanel::knobAt(juce::Point<float> d) const {
     for (int i = 0; i < 4; ++i) {
         if (d.getDistanceFrom(knobCentre(i)) <= 70.f) {
-            return i;
+            return slotOf(i);
         }
     }
     return -1;
+}
+
+int LiftPanel::pinAt(juce::Point<float> d) const {
+    const float x = d.x - kMxX, y = d.y - kMxY;
+    if (x < 0.f || y < 0.f) {
+        return -1;
+    }
+    const int c = static_cast<int>(x / kMxW), r = static_cast<int>(y / kMxH);
+    return c < 16 && r < 16 ? r * 16 + c : -1;
 }
 
 int LiftPanel::padAt(juce::Point<float> d) const {
@@ -211,7 +223,7 @@ int LiftPanel::padAt(juce::Point<float> d) const {
 
 int LiftPanel::memAt(juce::Point<float> d) const {
     for (int k = 0; k < 10; ++k) {
-        if (memRect(k).contains(d)) {
+        if (d.getDistanceFrom(encCentre(k)) <= 25.f) {
             return k;
         }
     }
@@ -308,7 +320,9 @@ bool LiftPanel::addCord(int o, int i, int c) {
             "another cable.");
         return false;
     }
-    cords_.push_back({o, i, c, stack_});
+    juce::ignoreUnused(c);
+    pushUndo();
+    cords_.push_back({o, i, cableCloth(o), stack_});
     flash("PATCHED " + jackName('o', o) + " " + kArrow + " " + jackName('i', i));
     say("Patched " + jackName('o', o) + " to " + jackName('i', i) + ".");
     publishPatch();
@@ -550,15 +564,16 @@ void LiftPanel::memAct(int k) {
 
 void LiftPanel::topAct(int k) {
     if (k < 6) {
-        color_ = k;
-        say("New cables will be " + juce::String(CLOTH[k].n).toLowerCase() + (stack_ ? " stackables." : "."));
-    } else if (k == 6) {
+        return;  // v3.1: no colour swatches (a cable takes its source's colour)
+    }
+    if (k == 6) {
         stack_ = !stack_;
         pick_ = {};
         say(stack_ ? "Stackable cables on. Pick a color and drag: the plugs have an open jack on top, so another "
                      "cable can plug into them."
                    : "Stackable cables off. New cables get closed caps.");
     } else if (k == 7) {
+        pushUndo();
         cords_.clear();
         pick_ = {};
         publishPatch();
@@ -696,13 +711,28 @@ void LiftPanel::mouseMove(const juce::MouseEvent& e) {
             repaint(menu_.bounds.getSmallestIntegerContainer().expanded(2));
         }
     }
+    trackRopes(d, true);
+    {
+        const int hv = pinAt(d);
+        if (hv != mxHover_) {
+            mxHover_ = hv;
+            if (hv >= 0) {
+                const int r = hv / 16, cc = hv % 16;
+                hint(juce::String::fromUTF8(MXR[r].n) + " " + kArrow + " " + juce::String::fromUTF8(MXC[cc].n) +
+                     juce::String::fromUTF8(" Â· CLICK: +100 / +50 / â" "100 / OFF"));
+            }
+            refreshParts();
+        }
+    }
     const JackId j = jackAt(d);
     if (j.valid()) {
         setMouseCursor(cordsAt(j.r, j.i).empty() ? juce::MouseCursor::CrosshairCursor
                                                   : juce::MouseCursor::DraggingHandCursor);
     } else if (knobAt(d) >= 0) {
         setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
-    } else if (padAt(d) >= 0 || memAt(d) >= 0 || keyAt(d) >= 0 || topAt(c) >= 0 ||
+    } else if (memAt(d) >= 0) {
+        setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+    } else if (padAt(d) >= 0 || keyAt(d) >= 0 || topAt(c) >= 0 || pinAt(d) >= 0 ||
                (menu_.open && menu_.bounds.contains(c))) {
         setMouseCursor(juce::MouseCursor::PointingHandCursor);
     } else {
@@ -730,8 +760,8 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
     if (mode_ == Drum && !bay_ && picker_ == Picker::None && shiftAmt_ <= 0.f) {
         // DRUM screen: click a step cell to toggle it for the selected voice
         const float sc = 600.f / 720.f;
-        const float vx = (d.x - 60.f) / sc;
-        const float vy = (d.y - 256.f - (32.f + (324.f - 319.f * sc) * 0.5f)) / sc - 40.f;
+        const float vx = (d.x - 60.f - kMainDX) / sc;
+        const float vy = (d.y - 256.f - kMainDY - (32.f + (324.f - 319.f * sc) * 0.5f)) / sc - 40.f;
         if (vy >= 140.f && vy <= 200.f && vx >= 24.f) {
             const int i = static_cast<int>((vx - 24.f) / 42.4f);
             if (i >= 0 && i < 16 && vx - 24.f - static_cast<float>(i) * 42.4f <= 38.f) {
@@ -771,8 +801,18 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
         }
         return;
     }
+    const int pc = pinAt(d);
+    if (pc >= 0) {
+        if (e.mods.isPopupMenu()) {
+            setPin(pc / 16, pc % 16, 0);
+        } else {
+            clickPin(pc / 16, pc % 16);
+        }
+        return;
+    }
     const int k = knobAt(d);
     if (k >= 0) {
+        hint(labels()[k] + juce::String::fromUTF8(" Â· DRAG UP / DOWN Â· SHIFT FINE Â· DOUBLE-CLICK CENTRE"));
         focusKnob_ = k;
         kd_ = {true, k, c.y, encAt(k)};
         pickDragY_ = c.y;
@@ -793,6 +833,16 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
         fxDownT_ = t_;
     }
     pressedMem_ = memAt(d);
+    if (pressedMem_ >= 0) {
+        // push-encoder: press, turn (drag), hold, hold + turn
+        mkd_ = {};
+        mkd_.active = true;
+        mkd_.slot = pressedMem_;
+        mkd_.y = c.y;
+        mkd_.v0 = mk_[static_cast<size_t>(pressedMem_)];
+        mkd_.t0 = t_;
+        hint(encHint(MEM_FN[pressedMem_]));
+    }
     if (pressedMem_ == kShiftSlot) {
         // press and hold = momentary shift; a quick tap latches (on release)
         shiftMouse_ = true;
@@ -833,6 +883,17 @@ void LiftPanel::mouseDrag(const juce::MouseEvent& e) {
     if (kd_.active) {
         const float range = (e.mods.isShiftDown() || shiftActive()) ? 1200.f : 220.f;
         setEnc(kd_.i, kd_.v0 + (kd_.y - c.y) / range);
+        return;
+    }
+    if (mkd_.active) {
+        const float dy = mkd_.y - c.y;
+        if (!mkd_.turned && std::abs(dy) > 4.f) {
+            mkd_.turned = true;
+            mkd_.held = t_ - mkd_.t0 >= 0.45;  // hold + turn
+        }
+        if (mkd_.turned) {
+            turnMk(mkd_.slot, mkd_.v0 + dy / (e.mods.isShiftDown() ? 900.f : 160.f));
+        }
         return;
     }
     if (mouseNote_) {
@@ -920,6 +981,19 @@ void LiftPanel::mouseUp(const juce::MouseEvent& e) {
         noteOff();
         return;
     }
+    const MkDrag md = mkd_;
+    mkd_ = {};
+    if (md.active && md.turned && md.slot != kShiftSlot) {
+        pressedMem_ = -1;  // a turn is not a press
+        repaint();
+        return;
+    }
+    if (md.active && !md.turned && md.slot != kShiftSlot && t_ - md.t0 >= 0.45) {
+        pressedMem_ = -1;
+        memHold(md.slot);  // hold
+        repaint();
+        return;
+    }
     // buttons act on click: press and release on the same control
     const int pad = padAt(d);
     const int mem = memAt(d);
@@ -958,6 +1032,11 @@ void LiftPanel::mouseUp(const juce::MouseEvent& e) {
 }
 
 void LiftPanel::mouseExit(const juce::MouseEvent&) {
+    trackRopes({}, false);
+    if (mxHover_ >= 0) {
+        mxHover_ = -1;
+        refreshParts();
+    }
     if (mouseNote_) {
         mouseNote_ = false;
         noteOff();

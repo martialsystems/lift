@@ -61,6 +61,9 @@ public:
     float envelope(int voice) const noexcept;  // amplitude envelope, for the screen
     double peakGain() const noexcept { return gain_; }
     shogun::Engine& engine() noexcept { return *e_; }
+    // SLICE jack: transpose one voice (volts, 1 V/oct through the kit's tune
+    // parameter; re-applied only when it moves).
+    void setTranspose(int voice, float volts) noexcept;
     void setBend(int voice, float semis) noexcept {  // tuning tools: override the kit's hit pitch drop
         if (voice >= 0 && voice < kDrumVoices) bend_[voice] = semis;
     }
@@ -71,6 +74,7 @@ private:
     int kit_ = 0;
     DrumKnobs knobs_[kDrumVoices];
     float bend_[kDrumVoices] = {};
+    float cvPitch_[kDrumVoices] = {};
     double gain_ = 2.0;  // SHOGUN's mains sit low (voices at -9 dB, noon); LIFT's drum bus gain
 };
 

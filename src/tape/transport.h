@@ -25,15 +25,22 @@ struct TapeRuntime {
     float highG[kTrackCount];
     float eqLo[kTrackCount][2];
     float eqHi[kTrackCount][2];
-    // Patch bay hooks for one process_block call (null = unused): a speed
-    // multiplier per sample (the SPEED jack, applied after the motor glide),
-    // and the two heads' playback per sample (HEAD 1 = the playback chain's
-    // mono mix, HEAD 2 = a second, plain head trailing by head2Gap frames of
-    // tape, so feeding it back makes a real tape echo that follows the speed).
-    const float* speedMul;
-    float* head1Out;
-    float* head2Out;
-    int head2Gap;
+    // Per-loop playheads (v3.1): every loop reads at the shared transport
+    // position plus its own offset, so SPEED / REVERSE on the armed loop move
+    // that loop only (the offset integrates the difference), and SCRUB nudges
+    // it by up to one beat (beatFrames) without moving the others.
+    double trackOff[kTrackCount];
+    double beatFrames;
+    // One block's transport positions and rates (tape_transport) and each
+    // loop's playback for it (tape_head), consumed by tape_mix.
+    int blkN;
+    double blkPos[kTapeMaxBlock];
+    double blkRate[kTapeMaxBlock];
+    float blkRamp[kTapeMaxBlock];   // the motor's ramp and glided speed per sample,
+    float blkSpeed[kTapeMaxBlock];  // so the playback chain follows them sample by sample
+    float eocLeft;
+    float headL[kTrackCount][kTapeMaxBlock];
+    float headR[kTrackCount][kTapeMaxBlock];
     int arm;
     int loopStart;
     int loopEnd;

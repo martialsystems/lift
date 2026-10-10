@@ -66,10 +66,12 @@ void transport_init(TapeRuntime& rt) noexcept {
     rt.frames = 0;
     rt.pos = 0.0;
     rt.varispeed = 1.f;
-    rt.speedMul = nullptr;
-    rt.head1Out = nullptr;
-    rt.head2Out = nullptr;
-    rt.head2Gap = 12000;
+    for (int t = 0; t < kTrackCount; ++t) {
+        rt.trackOff[t] = 0.0;
+    }
+    rt.beatFrames = 24000.0;
+    rt.blkN = 0;
+    rt.eocLeft = 0.f;
     rt.playing = false;
     rt.recording = false;
     rt.reverse = false;
@@ -126,6 +128,9 @@ void transport_stop(TapeRuntime& rt) noexcept {
     rt.playing = false;
     rt.recording = false;
     rt.reverse = false;
+    for (int t = 0; t < kTrackCount; ++t) {
+        rt.trackOff[t] = 0.0;  // a stop realigns every loop to the transport
+    }
     tape_engine_start(rt.engine, 0.f);
 }
 

@@ -340,6 +340,15 @@ void PolySynth::render(float* out, int n, const SynthCv& cv) noexcept {
     for (int i = 0; i < n2; ++i) {
         scratch_[i] = 0.f;
     }
+    // WAVE / DECAY columns: the macros move for this block only
+    const float keep0 = m_[0], keep3 = m_[3];
+    m_[0] = clampf(keep0 + cv.wave, 0.f, 1.f);
+    m_[3] = clampf(keep3 + cv.decay, 0.f, 1.f);
+    struct Restore {
+        float* m;
+        float a, b;
+        ~Restore() { m[0] = a; m[3] = b; }
+    } restore{m_, keep0, keep3};
     // vibrato (mod wheel), at block rate
     vibPh_ += 5.5 * n / fs_;
     vibPh_ -= std::floor(vibPh_);
@@ -363,6 +372,10 @@ void PolySynth::render(float* out, int n, const SynthCv& cv) noexcept {
     for (; o < n; ++o) {
         out[o] = 0.f;
     }
+    if (cv.level != 0.f) {
+        const float g = clampf(1.f + cv.level, 0.f, 2.f);
+        for (int i = 0; i < n; ++i) out[i] *= g;
+    }
 }
 
 void PolySynth::renderVoice(Voice& v, float* dst, int n2, const SynthCv& cv, int n) noexcept {
@@ -376,7 +389,7 @@ void PolySynth::renderVoice(Voice& v, float* dst, int n2, const SynthCv& cv, int
     }
     if (cv.cutoff != nullptr) {
         for (int i = 0; i < n; ++i) ccv += cv.cutoff[i];
-        ccv /= static_cast<float>(n) * 25.f;  // +5 V = +0.2 of the knob's range
+        ccv /= static_cast<float>(n) * 10.f;  // +5 V = +0.5 of the knob's range
     }
     const double vib = 0.35 * mod_ * std::sin(kTwoPi * vibPh_);
     const double note = v.note + bend_ + vib + 12.0 * pcv;
@@ -415,7 +428,7 @@ void PolySynth::renderVoice(Voice& v, float* dst, int n2, const SynthCv& cv, int
                 const double oct = 9.6 * cut + envAmt * fe;
                 v.ladder.set(26.0 * std::exp2(oct), fsE);
             }
-            const double y = v.ladder.tick(0.5 * (saw + 0.8 * sq), 1.6, 1.4);
+            const double y = v.ladder.tick(0.5 * (saw + 0.8 * sq), clampf(1.6f + 4.f * cv.reso, 0.f, 3.9f), 1.4);
             d[i] += static_cast<float>(0.6 * vel * a * y);
         }
         break;

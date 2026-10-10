@@ -32,6 +32,7 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/LiftPanelScreen.cpp
     ${LIFT_ROOT}/panel/PanelRender.cpp
     ${LIFT_ROOT}/panel/LiftShift.cpp
+    ${LIFT_ROOT}/panel/LiftMatrix.cpp
     ${LIFT_ROOT}/panel/LiftProcessor.cpp
     ${LIFT_ROOT}/panel/LiftSlots.cpp
     ${LIFT_ROOT}/panel/SlotStore.cpp

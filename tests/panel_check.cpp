@@ -383,7 +383,7 @@ int main(int argc, char** argv) {
     check(proc.uiPos.load() > 0.9 * 48000.0, "tape counter follows the transport");
     panel.act("stop");
     run(0.5);
-    check(panel.cords().size() == 6, "default patch: six cables in the model");
+    check(panel.cords().size() == 3, "default patch: three cables in the model");
 
     {
         // The screen animates while the tape runs and is still at rest.
@@ -521,7 +521,7 @@ int main(int argc, char** argv) {
         Rig r;
         auto& p = *r.panel;
         const juce::Rectangle<int> crop =
-            juce::Rectangle<float>(lift::ui::kDevX + 40.f, lift::ui::kDevY + 236.f, 644.f, 616.f).getSmallestIntegerContainer();
+            juce::Rectangle<float>(lift::ui::kDevX + lift::ui::kMainDX + 40.f, lift::ui::kDevY + lift::ui::kMainDY + 236.f, 644.f, 470.f).getSmallestIntegerContainer();
         std::vector<Event> ev = {{0.1, [](lift::LiftPanel& q) { q.act("play"); }},
                                  {0.5, [](lift::LiftPanel& q) { q.setShiftKey(true); }},
                                  {1.1, [](lift::LiftPanel& q) { q.pressKey(6); }},

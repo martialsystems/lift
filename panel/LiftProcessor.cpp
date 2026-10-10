@@ -369,6 +369,9 @@ void LiftProcessor::apply(const Command& c) noexcept {
         tape_drop(rt, true);
         break;
     }
+    case Cmd::UndoPass:
+        break;
+    case Cmd::UndoAudio:
     case Cmd::UndoDrop:
         if (undoStart_ >= 0) {
             for (int c = 0; c < 2; ++c) {
@@ -567,6 +570,10 @@ void LiftProcessor::handleMidiIn(const juce::MidiMessage& m, int samplePos) noex
 
 // ------------------------------------------------------------------ render
 
+const char* LiftProcessor::audioOpName(int) const noexcept {
+    return "DROP";
+}
+
 void LiftProcessor::renderInternal(float* outL, float* outR, int m) noexcept {
     TapeRuntime& rt = *rt_;
     if (clearTrack_ >= 0) {
@@ -652,6 +659,9 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     ctl.selVoice = drumVoice.load(std::memory_order_relaxed);
     ctl.fxOn = fxOn.load(std::memory_order_relaxed);
     ctl.transpose = transposeSemis.load(std::memory_order_relaxed);
+    ctl.quantScale = quantScale.load(std::memory_order_relaxed);
+    ctl.drumGateMs = drumGateMs.load(std::memory_order_relaxed);
+    ctl.arm = arm;
     inst_.block(*this, ctl, outL, outR);
     // per-jack signal level for the BAY screen's travelling dots (fast up, slow down)
     for (int j = 0; j < eng::kJacks; ++j) {
@@ -665,14 +675,78 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     }
 }
 
-void LiftProcessor::tapeBlock(const float* srcL, const float* srcR, const float* speedCv, bool reversePatched,
-                              bool reverse, const float* biasCv, float* outL, float* outR, float* head1, float* head2,
-                              int m) noexcept {
+// ---- the tape as the patch graph's host (eng::TapeHost), one 32-sample block
+
+void LiftProcessor::transportBlock(float* eoc, int m) noexcept {
     TapeRuntime& rt = *rt_;
-    float sl[eng::kBlock], sr[eng::kBlock];
+    rt.beatFrames = 60.0 / juce::jmax(20.0, tempoBpm.load(std::memory_order_relaxed)) * kSampleRate;
+    tape_transport(rt, m, eoc);
+    if (rt.blkN > 0 && rt.frames > 0) {
+        // Track meters: peak of what is on each track under the head.
+        const int p0 = juce::jlimit(0, rt.frames - 1, static_cast<int>(rt.blkPos[0]));
+        const int p1 = juce::jmin(rt.frames, p0 + m);
+        for (int t = 0; t < kTrackCount && t < 4; ++t) {
+            float pk = 0.f;
+            if (!rt.mute[t]) {
+                const float* x = rt.ch[t][0];
+                for (int i = p0; i < p1; ++i) {
+                    pk = juce::jmax(pk, x[i] < 0.f ? -x[i] : x[i]);
+                }
+            }
+            trackPeak_[t] = juce::jmax(trackPeak_[t], pk);
+        }
+    }
+}
+
+void LiftProcessor::headBlock(int t, const float* speedCv, bool rev, const float* scrubCv, float* head, int m) noexcept {
+    TapeRuntime& rt = *rt_;
+    if (rt.blkN == 0) {
+        // stopped: SCRUB 0..5 V sets the play position from loop start to end
+        if (scrubCv != nullptr && t == rt.arm && rt.frames > 0) {
+            const bool loop = rt.loopEnd > rt.loopStart;
+            const double lo = loop ? rt.loopStart : 0.0, span = loop ? rt.loopEnd - rt.loopStart : rt.frames - 1;
+            rt.pos = lo + juce::jlimit(0.0, 1.0, static_cast<double>(scrubCv[m - 1]) / 5.0) * span;
+        }
+        for (int i = 0; i < m; ++i) head[i] = 0.f;
+        return;
+    }
+    tape_head(rt, t, speedCv, rev, scrubCv, head);
+}
+
+void LiftProcessor::inputBlock(const float* cableL, const float* cableR, float* outL, float* outR, int m) noexcept {
+    // AUDIO L / R cables are the IN screen's LINE input (AUDIO L alone feeds
+    // both sides). The plugin has no interface input bus yet: unpatched, silence.
     for (int i = 0; i < m; ++i) {
-        sl[i] = srcL[i];
-        sr[i] = srcR[i];
+        const float l = cableL != nullptr ? 0.2f * cableL[i] : 0.f;
+        const float r = cableR != nullptr ? 0.2f * cableR[i] : l;
+        outL[i] = l;
+        outR[i] = r;
+    }
+}
+
+void LiftProcessor::jackPress() noexcept {
+    // REC jack / column: a rising edge presses REC (or LIFT, by the REC-jack option)
+    TapeRuntime& rt = *rt_;
+    if (recJackLifts.load(std::memory_order_relaxed)) {
+        apply({Cmd::Lift, 0, 0, 0.0});
+        return;
+    }
+    apply({Cmd::Transport, 1, rt.recording ? 0 : 1, 0.0});
+}
+
+void LiftProcessor::mixBlock(const eng::TapeMixIo& io, int m) noexcept {
+    TapeRuntime& rt = *rt_;
+    if (io.recPress) {
+        jackPress();
+    }
+    float* outL = io.outL;
+    float* outR = io.outR;
+    float sl[eng::kBlock], sr[eng::kBlock];
+    // record source: synth + drums through FX, the IN path, or the tape output
+    const bool fromIn = recSource_ == 1;
+    for (int i = 0; i < m; ++i) {
+        sl[i] = fromIn ? io.inL[i] : io.srcL[i];
+        sr[i] = fromIn ? io.inR[i] : io.srcR[i];
     }
     pushScope(sl, m);
     // IN GAIN, ramped across the block
@@ -706,15 +780,14 @@ void LiftProcessor::tapeBlock(const float* srcL, const float* srcR, const float*
         }
         uiGateOpen.store(gateHold_ > 0, std::memory_order_relaxed);
     }
-    // record source: synth + drums through FX, the (not yet built) input, or the tape output
-    const float* inL = recSource_ == 0 ? sl : recSource_ == 1 ? zero_.get() : resample_.get();
-    const float* inR = recSource_ == 0 ? sr : recSource_ == 1 ? zero_.get() : resample_.get();
-    // BIAS jack (+5 V = +1 on the knob's 0..1) and REC LVL into both record chains
+    const float* inL = recSource_ == 2 ? resample_.get() : sl;
+    const float* inR = recSource_ == 2 ? resample_.get() : sr;
+    // BIAS (jack + column: +5 V = +1 on the knob's 0..1) and REC LVL into both record chains
     {
         float b = biasKnob_;
-        if (biasCv != nullptr) {
+        if (io.biasCv != nullptr) {
             float mean = 0.f;
-            for (int i = 0; i < m; ++i) mean += biasCv[i];
+            for (int i = 0; i < m; ++i) mean += io.biasCv[i];
             b = juce::jlimit(0.f, 1.f, b + mean / static_cast<float>(m) / 5.f);
         }
         const float d = driveKnob_;
@@ -731,44 +804,7 @@ void LiftProcessor::tapeBlock(const float* srcL, const float* srcR, const float*
             lastDrive_ = d;
         }
     }
-    // REVERSE jack: high = backwards while patched; the panel's REV returns when unpatched
-    if (reversePatched) {
-        rt.reverse = reverse;
-        cvRev_ = true;
-    } else if (cvRev_) {
-        rt.reverse = userRev_;
-        cvRev_ = false;
-    }
-    // SPEED jack: 1 V = 1 semitone, after the motor's glide (audio rate)
-    if (speedCv != nullptr) {
-        for (int i = 0; i < m; ++i) {
-            speedCvMul_[i] = std::exp2(juce::jlimit(-36.f, 36.f, speedCv[i]) / 12.f);
-        }
-        rt.speedMul = speedCvMul_;
-    } else {
-        rt.speedMul = nullptr;
-    }
-    rt.head1Out = head1;
-    rt.head2Out = head2;
-    if (rt.playing && rt.frames > 0) {
-        // Track meters: peak of what is on each track under the head.
-        const int p0 = juce::jlimit(0, rt.frames - 1, static_cast<int>(rt.pos));
-        const int p1 = juce::jmin(rt.frames, p0 + m);
-        for (int t = 0; t < kTrackCount && t < 4; ++t) {
-            float pk = 0.f;
-            if (!rt.mute[t]) {
-                const float* x = rt.ch[t][0];
-                for (int i = p0; i < p1; ++i) {
-                    pk = juce::jmax(pk, x[i] < 0.f ? -x[i] : x[i]);
-                }
-            }
-            trackPeak_[t] = juce::jmax(trackPeak_[t], pk);
-        }
-    }
-    process_block(rt, inL, inR, outL, outR, m);
-    rt.speedMul = nullptr;
-    rt.head1Out = nullptr;
-    rt.head2Out = nullptr;
+    tape_mix(rt, inL, inR, outL, outR, io.send, m);
     // SCRUB by hand while the transport is stopped: the heads read the tape
     // as it moves, louder the faster it goes, silent when it stands still
     if (!rt.playing && !rt.recording && rt.frames > 0 && (scrubPending_ != 0.0 || scrubGain_ > 0.f)) {
@@ -797,7 +833,6 @@ void LiftProcessor::tapeBlock(const float* srcL, const float* srcR, const float*
             }
             outL[i] += l;
             outR[i] += r;
-            head1[i] = 0.5f * (l + r);
         }
     }
     for (int i = 0; i < m; ++i) {
@@ -1242,7 +1277,7 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     drumKit.store(s.sel[1]);
     synthEngine.store(s.sel[0]);
     applyExtras(s, nullptr);
-    patch.publish(s.cords);
+    patch.publish(s.cords, s.pins, s.arm);
     auto* mm = juce::MessageManager::getInstanceWithoutCreating();
     if (mm != nullptr && !mm->isThisTheMessageThread()) {
         pendingLoaded_.store(slot + 1);  // a host restored state off the message thread: tell the panel from the timer

@@ -3,11 +3,13 @@
 #pragma once
 
 #include "LiftProcessor.h"
+#include "CableRope.h"
 #include "ScreenAnim.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -16,9 +18,9 @@
 namespace lift {
 
 // The LIFT front panel, drawn natively 1:1 from the HTML prototype
-// (LIFT.html). Everything is laid out in the prototype's CSS pixels ("canvas"
-// pixels: the prototype page at scale 1, 1432 x 996: the control bar and info
-// line, then the 1400 x 920 stage). The component is sized in real pixels
+// (LIFT-v3.html, v3.1). Everything is laid out in the prototype's CSS pixels
+// ("canvas" pixels, 1360 x 1106: the control bar and info line, then the
+// 1328 x 994 case at (16, 76)). The component is sized in real pixels
 // (one of LiftEditor's fixed sizes) and draws the canvas at that scale.
 //
 // Rendering (PanelRender.cpp), the RONIN / BUSHIDO model:
@@ -32,8 +34,8 @@ namespace lift {
 //    the display frame loop, and the cables live on their own layer (Cables).
 class LiftPanel : public juce::Component, private LiftProcessor::Listener {
 public:
-    static constexpr int kW = 1432;
-    static constexpr int kH = 996;
+    static constexpr int kW = 1360;
+    static constexpr int kH = 1106;
 
     explicit LiftPanel(LiftProcessor& p);
     ~LiftPanel() override;
@@ -48,6 +50,18 @@ public:
     float enc(int mode, int i) const { return enc_[static_cast<size_t>(mode)][static_cast<size_t>(i)]; }
     Mode mode() const { return mode_; }
     const std::vector<Cord>& cords() const { return cords_; }
+    // Pin matrix: 16 rows (sources) x 16 columns (destinations); 0 none,
+    // 1 +100 %, 2 +50 %, 3 -100 %.
+    int pin(int r, int c) const { return pins_[static_cast<size_t>(r * 16 + c)]; }
+    void setPin(int r, int c, int k);
+    void clickPin(int r, int c);  // cycles none -> +100 -> +50 -> -100 -> none
+    // The context hint line: what the touched or held control does.
+    juce::String hintText() const;
+    juce::String contextText() const;  // screen, page and knob side, e.g. "TAPE \xc2\xb7 DECK \xc2\xb7 A"
+    // Push-encoder values (0..1) by keypad slot.
+    float mk(int slot) const { return mk_[static_cast<size_t>(slot)]; }
+    void turnMk(int slot, float v);
+    int physicalKnob(int slot) const;  // where macro `slot` sits on this screen (tests)
     juce::String infoText() const { return info_; }
     void tick() { advance(1.0 / 60.0); }
     // One display frame (the VBlank loop calls it with wall time).
@@ -168,6 +182,42 @@ private:
     int color_ = 1;
     bool stack_ = false;
     std::vector<Cord> cords_;
+    std::array<std::uint8_t, 256> pins_{};
+    bool recJackLifts_ = false;  // REC jack option: it presses LIFT
+    int mxHover_ = -1;  // hovered cell r * 16 + c
+    std::array<float, 10> mk_{{0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.7f, 0.5f, 0.5f, 0.5f, 0.5f}};
+    juce::String hint_;      // the hint line's text for what was last touched
+    double hintT_ = -10.0;
+    void hint(const juce::String& t) { hint_ = t; hintT_ = t_; }
+    int pinAt(juce::Point<float> dev) const;
+    int slotOf(int k) const;  // physical knob (by colour) -> macro slot of this screen
+    struct MkDrag {
+        bool active = false, turned = false, held = false;
+        int slot = -1;
+        float y = 0.f, v0 = 0.f;
+        double t0 = 0.0;
+    };
+    MkDrag mkd_;
+    juce::String encHint(int fn) const;
+    float liftSeconds() const;
+    void memHold(int slot);
+    // SELECT (P3): the window over what would be kept
+    bool selectOpen_ = false;
+    void openSelect(bool lift);
+    void selectTurn(int fn, float delta);
+    bool selectUndo();
+    // one history: cables, pins, and (audioOp >= 0) a keep / drop / overdub
+    struct HistEntry {
+        std::vector<Cord> cords;
+        std::array<std::uint8_t, 256> pins{};
+        int audioOp = -1;
+    };
+    std::vector<HistEntry> hist_;
+    void pushUndo(int audioOp = -1);
+public:
+    void undo();
+    int historySize() const { return static_cast<int>(hist_.size()); }
+private:
     juce::String info_;
 
     Drag drag_;
@@ -322,10 +372,28 @@ private:
     juce::Point<float> sharpPos(int o, int b) const;
     juce::Rectangle<float> naturalRect(int j) const;
     void paintKeyLabels(juce::Graphics& g);
+    void paintMatrix(juce::Graphics& g);
+    void paintHint(juce::Graphics& g);
     void paintCables(juce::Graphics& g);
-    static void drawSettledCable(juce::Graphics& g, float x1, float y1, float x2, float y2, int ci, bool st);
+    static void drawSettledCable(juce::Graphics& g, const juce::Path& d, float x1, float y1, float x2, float y2, int ci,
+                                 bool st, bool cheap);
     void paintLiveCable(juce::Graphics& g);
-    static juce::Rectangle<float> cableBounds(float x1, float y1, float x2, float y2);
+    static juce::Rectangle<float> cableBounds(const juce::Rectangle<float>& path);
+    struct CordEnds {
+        float x1, y1, x2, y2;
+    };
+    CordEnds cordEnds(size_t n, const std::vector<Level>& lv) const;
+    ui::Rope& ropeFor(size_t n, const std::vector<Level>& lv);
+    void buildRopeScene();
+    void trackRopes(juce::Point<float> dev, bool in);
+    void stepRopes();
+    juce::Point<float> liveFixed() const;
+    int liveCloth() const;
+    std::unordered_map<int, ui::Rope> ropes_;
+    ui::RopeScene scene_;
+    int ropeIdle_ = 0;
+    bool ropeAwake_ = false;
+    juce::Rectangle<int> ropeShown_;
     juce::Rectangle<float> liveCableBounds() const;
     void paintMenu(juce::Graphics& g);
     void buildGrain();

@@ -46,6 +46,10 @@ struct UiState {
     int color = 1;
     bool stack = false;
     std::vector<Cord> cords;
+    // the v3.1 pin matrix: [row * 16 + column], 0 none, 1 +100 %, 2 +50 %, 3 -100 %
+    std::array<std::uint8_t, 256> pins{};
+    // REC jack option (P4): the REC jack presses LIFT instead of REC
+    bool recJackLifts = false;
     std::array<int, 128> learn;  // CC number -> knob target, -1 = not learned
     // DRUM: step patterns per kit and voice (bit s = step s), the voice the
     // DRUM knobs play, and each voice's PITCH / CHOKE / DECAY knob.
@@ -62,6 +66,7 @@ struct UiState {
     juce::ValueTree toTree() const;
     // Missing or out-of-range values keep their defaults.
     static UiState fromTree(const juce::ValueTree& t);
+    static bool remapV2(Cord& c, std::array<std::uint8_t, 256>& pins);
 };
 
 }  // namespace lift

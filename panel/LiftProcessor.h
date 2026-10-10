@@ -52,7 +52,9 @@ enum class Cmd : uint8_t {
     DrumHit,     // a = voice, b = velocity 1..127
     DrumKnob,    // a = voice, b = 0 pitch / 1 choke / 2 decay, v = 0..1
     FxType,      // a = effect (eng::FxType)
-    AllNotesOff  // every synth voice, now
+    AllNotesOff, // every synth voice, now
+    UndoPass,    // discard the overdub pass in progress
+    UndoAudio,   // a = audio op id: undo that keep / drop / overdub
 };
 
 struct Command {
@@ -106,6 +108,9 @@ public:
     // ---- message thread API (the panel) ----
     void send(Cmd c, int a = 0, int b = 0, double v = 0.0) noexcept;
     std::atomic<float> speed{1.f};     // SPEED knob, 0.25x .. 4x
+    std::atomic<float> liftBack{4.f};  // LIFT encoder: seconds of the capture buffer the next LIFT keeps
+    bool overdubbing() const noexcept { return uiRecording.load(std::memory_order_relaxed); }
+    const char* audioOpName(int op) const noexcept;
     std::atomic<float> bias{0.45f};    // BIAS knob, 0..1
     std::atomic<float> drive{1.8f};    // REC LVL knob mapped to drive
     PatchBayModel patch;
@@ -115,6 +120,11 @@ public:
     std::atomic<int> drumStepDiv{16};
     std::atomic<int> drumLength{16};   // steps
     std::atomic<int> drumSwing{0};     // percent
+    // P4: QUANT scale (eng::kQuantScaleNames), the DRUM jack's pulse length
+    // (ms) and the REC-jack option "this jack presses LIFT"
+    std::atomic<int> quantScale{0};
+    std::atomic<float> drumGateMs{10.f};
+    std::atomic<bool> recJackLifts{false};
     std::atomic<int> drumKit{0};
     std::atomic<int> synthEngine{0};   // eng::SynthEngine
     std::atomic<int> drumVoice{0};     // the voice the DRUM knobs (and the SLICE jack) play
@@ -241,13 +251,15 @@ private:
     eng::PatchPlan plan_;
     float jackLvl_[eng::kJacks] = {};
     uint32_t patchSeq_ = 0xffffffffu;
-    void tapeBlock(const float* srcL, const float* srcR, const float* speedCv, bool reversePatched, bool reverse,
-                   const float* biasCv, float* outL, float* outR, float* head1, float* head2, int n) noexcept override;
+    void transportBlock(float* eoc, int n) noexcept override;
+    void headBlock(int t, const float* speedCv, bool rev, const float* scrubCv, float* head, int n) noexcept override;
+    void inputBlock(const float* cableL, const float* cableR, float* outL, float* outR, int n) noexcept override;
+    void mixBlock(const eng::TapeMixIo& io, int n) noexcept override;
+    void jackPress() noexcept;
     void renderBlock32(float* outL, float* outR) noexcept;
     float blkL_[eng::kBlock] = {}, blkR_[eng::kBlock] = {};
     int blkPos_ = eng::kBlock;   // read position in the last rendered 32-sample block
     KnobSmoother fxSm_[4];
-    float speedCvMul_[eng::kBlock] = {};
     float gateEnv_ = 0.f;        // IN THRESH gate
     int gateHold_ = 0;
     float biasKnob_ = 0.45f, driveKnob_ = 1.8f, threshKnob_ = 0.55f;

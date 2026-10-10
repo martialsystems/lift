@@ -4,6 +4,7 @@
 
 #include "engine/patch.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <vector>
@@ -30,12 +31,18 @@ struct Cord {
 struct PatchSnapshot {
     int count = 0;
     Cord cords[kMaxCords];
+    std::uint8_t pins[256] = {};  // matrix: [row * 16 + column], 0 none, 1 +100 %, 2 +50 %, 3 -100 %
     eng::PatchPlan plan;
 };
 
 class PatchBayModel {
 public:
     // Message thread.
+    void publish(const std::vector<Cord>& cords, const std::array<std::uint8_t, 256>& pins, int arm) {
+        pins_ = pins;
+        arm_ = arm;
+        publish(cords);
+    }
     void publish(const std::vector<Cord>& cords) {
         const int n = static_cast<int>(cords.size()) < kMaxCords ? static_cast<int>(cords.size()) : kMaxCords;
         int os[kMaxCords], is[kMaxCords];
@@ -43,7 +50,7 @@ public:
             os[k] = cords[static_cast<size_t>(k)].o;
             is[k] = cords[static_cast<size_t>(k)].i;
         }
-        plan_ = eng::planPatch(os, is, n);  // allocates: before the write window
+        plan_ = eng::planPatch(os, is, n, pins_.data(), arm_);  // allocates: before the write window
         const uint32_t s = seq_.load(std::memory_order_relaxed);
         seq_.store(s + 1, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_release);
@@ -51,6 +58,9 @@ public:
             snap_.cords[k] = cords[static_cast<size_t>(k)];
         }
         snap_.count = n;
+        for (int k = 0; k < 256; ++k) {
+            snap_.pins[k] = pins_[static_cast<size_t>(k)];
+        }
         snap_.plan = plan_;
         std::atomic_thread_fence(std::memory_order_release);
         seq_.store(s + 2, std::memory_order_release);
@@ -91,6 +101,8 @@ private:
     std::atomic<uint32_t> seq_{0};
     PatchSnapshot snap_;
     eng::PatchPlan plan_;  // message-thread copy
+    std::array<std::uint8_t, 256> pins_{};
+    int arm_ = 0;
 };
 
 }  // namespace lift

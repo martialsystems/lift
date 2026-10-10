@@ -103,7 +103,7 @@ int runUiBench(float backingScale) {
     run("settle", 20, [](int) {});
 
     // cable drag: pick up the cable on OUT 1 and drag it around the bay
-    const auto j = at(lift::ui::kDevX + lift::ui::jx(0), lift::ui::kDevY + lift::ui::jy('o'));
+    const auto j = at(lift::ui::kDevX + lift::ui::jackCentre('o', 0).x, lift::ui::kDevY + lift::ui::jackCentre('o', 0).y);
     panel->mouseDown(mouse(*panel, j, j, false, true));
     run("cable drag", 40, [&](int f) {
         const float a = static_cast<float>(f) * 0.07f;

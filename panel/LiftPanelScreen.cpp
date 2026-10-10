@@ -84,7 +84,7 @@ double waveFn(int engine, const std::array<float, 4>& k, double t) {
 }  // namespace
 
 juce::Rectangle<int> LiftPanel::screenArea() {
-    return juce::Rectangle<float>(kDevX + 58.f, kDevY + 254.f, 604.f, 410.f).getSmallestIntegerContainer();
+    return juce::Rectangle<float>(kDevX + 58.f + kMainDX, kDevY + 254.f + kMainDY, 604.f, 410.f).getSmallestIntegerContainer();
 }
 
 // ------------------------------------------------------------------ clock
@@ -124,7 +124,7 @@ void LiftPanel::advance(double dtD) {
 
     // knob-driven springs
     for (size_t i = 0; i < 4; ++i) {
-        const float target = encAt(static_cast<int>(i));
+        const float target = encAt(slotOf(static_cast<int>(i)));
         an_.foot[i].step(target, dt, snap);
         busy = busy || an_.foot[i].moving(target);
         const float fv = arm_ == static_cast<int>(i) ? enc_[Mix][0] : screen::kMixLevels[i];
@@ -353,6 +353,7 @@ void LiftPanel::paintScreen(Graphics& g) {
     g.addTransform(AffineTransform::translation(S.getX(), S.getY()));
     paintStatus(g);
     paintView(g);
+    paintHint(g);
     paintFoot(g);
 }
 
@@ -913,18 +914,92 @@ void LiftPanel::paintViewIn(Graphics& g) {
 
 // ------------------------------------------------------------------ BAY
 
+// The audit view: everything patched in one list, cables first (oldest
+// first), then pins by address, then the normals still in use (dimmed).
+// Only links that close a true cycle in the graph carry FEEDBACK z^-1.
 void LiftPanel::paintViewBay(Graphics& g) {
-    svgText(g, juce::String::fromUTF8("CORDS ") + juce::String(static_cast<int>(cords_.size())) +
-                   juce::String::fromUTF8(" \xc2\xb7 INPUTS SUM"),
-            24.f, 28.f, 11.f, hex(0x8c877b), -1, false, 1.f);
-    svgText(g, "32-SAMPLE BLOCK", 696.f, 28.f, 11.f, hex(0x8c877b), 1, false, 1.f);
-    const int n = juce::jmin(9, static_cast<int>(cords_.size()));
+    const auto& plan = proc_.patch.plan();
+    int nPins = 0;
+    for (auto p : pins_) nPins += p != 0 ? 1 : 0;
+    const juce::String dot = juce::String::fromUTF8(" \xc2\xb7 ");
+    svgText(g, "CORDS " + juce::String(static_cast<int>(cords_.size())) + dot + "PINS " + juce::String(nPins) + dot + "INPUTS SUM",
+            24.f, 26.f, 11.f, hex(0x8c877b), -1, false, 1.f);
+    svgText(g, "32-SAMPLE BLOCK", 696.f, 26.f, 11.f, hex(0x8c877b), 1, false, 1.f);
+    struct Item {
+        juce::String a, b, tag, amt;
+        juce::Colour sw;
+        bool dim = false, fb = false, cable = false;
+        int k = 0;
+    };
+    std::vector<Item> items;
+    items.reserve(cords_.size() + static_cast<size_t>(nPins) + 10);
+    for (size_t k = 0; k < cords_.size(); ++k) {
+        const Cord& c = cords_[k];
+        Item it;
+        it.a = juce::String::fromUTF8(OUTS[c.o].n);
+        it.b = juce::String::fromUTF8(INS[c.i].n);
+        it.sw = hex(CLOTH[c.c].c);
+        it.fb = eng::cableIsFeedback(plan, c.o, c.i);
+        it.amt = "100%";
+        it.cable = true;
+        it.k = static_cast<int>(k);
+        items.push_back(it);
+    }
+    static const char* kAmt[4] = {"", "+100%", "+50%", "\xe2\x88\x92" "100%"};
+    for (int r = 0; r < 16; ++r) {
+        for (int c = 0; c < 16; ++c) {
+            const int v = pin(r, c);
+            if (v == 0) continue;
+            Item it;
+            it.tag = "PIN " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + r)) + juce::String(c + 1);
+            it.a = juce::String::fromUTF8(MXR[r].n);
+            it.b = juce::String::fromUTF8(MXC[c].n);
+            it.sw = v == 1 ? hex(0xede6d6) : v == 2 ? hex(0x8c877b) : hex(0x2a2a2a);
+            it.fb = eng::pinIsFeedback(plan, r, c);
+            it.amt = juce::String::fromUTF8(kAmt[v]);
+            items.push_back(it);
+        }
+    }
+    // normals still in use
+    auto cabled = [&](int in) {
+        for (const auto& c : cords_) {
+            if (c.i == in) return true;
+        }
+        return false;
+    };
+    auto colPinned = [&](int c, bool pitchOnly) {
+        for (int r = 0; r < 16; ++r) {
+            if (pin(r, c) != 0 && (!pitchOnly || MXR[r].sym == 'p')) return true;
+        }
+        return false;
+    };
+    auto normal = [&](const char* from, const char* to) {
+        Item it;
+        it.a = juce::String::fromUTF8(from);
+        it.b = juce::String::fromUTF8(to);
+        it.tag = "NORMAL";
+        it.dim = true;
+        it.sw = hex(0x3a3a36);
+        items.push_back(it);
+    };
+    if (!cabled(eng::I_PITCH) && !colPinned(0, true)) normal("A PITCH", "PITCH");
+    if (!cabled(eng::I_GATE) && !colPinned(9, false)) normal("A GATE", "GATE");
+    if (!cabled(eng::I_QUANT)) normal("S&H", "QUANT");
+    if (!cabled(eng::I_SH)) normal("NOISE", "S&H");
+    if (!cabled(eng::I_CLK)) normal("INTERNAL CLOCK", "CLK IN");
+    if (!cabled(eng::I_REVERSE)) normal("REV KNOB", "REVERSE");
+    if (!cabled(eng::I_AUDIOL)) normal("INTERFACE 1 / 2", "AUDIO L / R");
+    if (!colPinned(15, false)) normal("C16 ENV", "VCA");
+    if (!colPinned(10, false)) normal("H11 VEL", "LEVEL");
+
+    constexpr int kRows = 13;
+    const int n = juce::jmin(kRows, static_cast<int>(items.size()));
     const float tt = static_cast<float>(t_);
     for (int k = 0; k < n; ++k) {
-        const Cord& c = cords_[static_cast<size_t>(k)];
-        const float y = 48.f + k * 28.f;
+        const Item& it = items[static_cast<size_t>(k)];
+        const float y = 40.f + static_cast<float>(k) * 21.f;
         // rows deal in from the left, one after another, when BAY opens
-        const float rp = reducedMotion_ ? 1.f : clamp01((static_cast<float>(t_ - an_.bayT) - k * 0.045f) / 0.32f);
+        const float rp = reducedMotion_ ? 1.f : clamp01((static_cast<float>(t_ - an_.bayT) - static_cast<float>(k) * 0.03f) / 0.32f);
         if (rp <= 0.f) {
             continue;
         }
@@ -932,53 +1007,62 @@ void LiftPanel::paintViewBay(Graphics& g) {
         if (rp < 1.f) {
             g.addTransform(AffineTransform::translation(-60.f * (1.f - easeOutBack(rp, 1.6f)), 0.f));
         }
-        // the newest cord flashes its row
-        if (k == n - 1 && !reducedMotion_) {
+        if (it.cable && it.k == static_cast<int>(cords_.size()) - 1 && !reducedMotion_) {
             const float f = decayFrom(t_ - an_.cordT, 4.f);
             if (f > 0.01f) {
-                g.setColour(hex(CLOTH[c.c].c, 0.35f * f));
-                g.fillRect(18.f, y - 6.f, 684.f, 26.f);
+                g.setColour(it.sw.withMultipliedAlpha(0.35f * f));
+                g.fillRect(18.f, y - 4.f, 684.f, 20.f);
             }
         }
-        g.setColour(hex(CLOTH[c.c].c));
-        g.fillRect(24.f, y, 14.f, 14.f);
-        g.setColour(hex(0xede6d6, 0.3f));
-        g.drawRect(23.5f, y - 0.5f, 15.f, 15.f, 1.f);
-        svgText(g, juce::String::fromUTF8(OUTS[c.o].n), 52.f, y + 12.f, 14.f, hex(0xede6d6));
-        svgText(g, juce::String::fromUTF8("\xe2\x86\x92"), 290.f, y + 12.f, 14.f, hex(0x5e5a50));
-        svgText(g, juce::String::fromUTF8(INS[c.i].n), 330.f, y + 12.f, 14.f, hex(0xede6d6));
-        // signal dots travel from the OUT to the IN, in the cord's colour; they
-        // run faster and brighter with the real signal level on the OUT jack
-        const float lvl = juce::jlimit(0.f, 1.f, proc_.uiJackLevel[juce::jlimit(0, 15, static_cast<int>(c.o))].load());
-        if (!reducedMotion_ && lvl > 0.002f) {
-            const Colour dc = c.c == 0 ? hex(0xede6d6) : hex(CLOTH[c.c].lt);
-            const float rate = 0.35f + 1.2f * std::sqrt(lvl);
-            for (int j = 0; j < 2; ++j) {
-                float ph = tt * rate + static_cast<float>(k) * 0.17f + static_cast<float>(j) * 0.5f;
-                ph -= std::floor(ph);
-                const float dx = 240.f + 80.f * ph;
-                const float a = std::sin(kPi * ph);
-                fill(g, circle(dx, y + 7.f, 2.5f), dc.withAlpha((0.35f + 0.55f * std::sqrt(lvl)) * a));
+        const juce::Colour fg = it.dim ? hex(0x6a665c) : hex(0xede6d6);
+        if (it.cable) {
+            g.setColour(it.sw);
+            g.fillRect(24.f, y, 12.f, 12.f);
+            g.setColour(hex(0xede6d6, 0.3f));
+            g.drawRect(23.5f, y - 0.5f, 13.f, 13.f, 1.f);
+        } else {
+            fill(g, circle(30.f, y + 6.f, 5.5f), it.sw);
+            if (!it.dim) {
+                g.setColour(hex(0xede6d6, 0.5f));
+                g.drawEllipse(24.5f, y + 0.5f, 11.f, 11.f, 1.f);
             }
         }
-        if (eng::cableIsFeedback(proc_.patch.plan(), c.o, c.i)) {
-            // feedback tag pulses like a heartbeat
+        if (it.tag.isNotEmpty()) {
+            svgText(g, it.tag, 46.f, y + 10.f, 10.f, it.dim ? hex(0x4e4b44) : hex(0x8c877b));
+        }
+        const float x0 = it.cable ? 46.f : 118.f;
+        svgText(g, it.a, x0, y + 11.f, 12.f, fg);
+        svgText(g, juce::String::fromUTF8("\xe2\x86\x92"), 290.f, y + 11.f, 12.f, hex(0x5e5a50));
+        svgText(g, it.b, 318.f, y + 11.f, 12.f, fg);
+        if (it.cable) {
+            // signal dots travel from the OUT to the IN, faster with the OUT jack's level
+            const Cord& c = cords_[static_cast<size_t>(it.k)];
+            const float lvl = juce::jlimit(0.f, 1.f, proc_.uiJackLevel[juce::jlimit(0, 15, static_cast<int>(c.o))].load());
+            if (!reducedMotion_ && lvl > 0.002f) {
+                const float rate = 0.35f + 1.2f * std::sqrt(lvl);
+                for (int j = 0; j < 2; ++j) {
+                    float ph = tt * rate + static_cast<float>(k) * 0.17f + static_cast<float>(j) * 0.5f;
+                    ph -= std::floor(ph);
+                    const float a = std::sin(kPi * ph);
+                    fill(g, circle(214.f + 64.f * ph, y + 6.f, 2.2f), it.sw.brighter(0.3f).withAlpha((0.35f + 0.55f * std::sqrt(lvl)) * a));
+                }
+            }
+        }
+        if (it.fb) {
             const float pulse = reducedMotion_ ? 1.f : 0.6f + 0.4f * (0.5f + 0.5f * std::sin(tt * 6.f));
-            svgText(g, juce::String::fromUTF8("FEEDBACK z\xe2\x81\xbb\xc2\xb9"), 600.f, y + 12.f, 11.f,
-                    hex(0xf4be2a, pulse), 1);
+            svgText(g, juce::String::fromUTF8("FEEDBACK z\xe2\x81\xbb\xc2\xb9"), 610.f, y + 11.f, 10.f, hex(0xf4be2a, pulse), 1);
         }
-        // the patch model has no per-cord attenuator: every cord is unity
-        const float amt = k < proc_.patch.plan().count ? proc_.patch.plan().amount[k] : 1.f;
-        svgText(g, juce::String(juce::roundToInt(amt * 100.f)) + "%", 696.f, y + 12.f, 14.f, hex(0x8c877b), 1);
+        if (it.amt.isNotEmpty()) {
+            svgText(g, it.amt, 696.f, y + 11.f, 12.f, hex(0x8c877b), 1);
+        }
     }
-    if (cords_.empty()) {
-        svgText(g, juce::String::fromUTF8("NO CORDS \xc2\xb7 DRAG FROM AN OUT TO AN IN"), 24.f, 70.f, 14.f, hex(0x8c877b));
+    if (cords_.empty() && nPins == 0) {
+        svgText(g, juce::String::fromUTF8("NOTHING PATCHED \xc2\xb7 DRAG FROM AN OUT TO AN IN, OR CLICK A PIN"), 24.f, 330.f, 11.f,
+                hex(0x8c877b));
     }
-    const juce::String foot =
-        (cords_.size() > 9 ? "+" + juce::String(static_cast<int>(cords_.size()) - 9) + juce::String::fromUTF8(" MORE \xc2\xb7 ")
-                           : juce::String()) +
-        "SOFT CLIP + DC BLOCK ON EVERY LOOP";
-    svgText(g, foot, 24.f, 308.f, 10.f, hex(0x5e5a50), -1, false, 1.f);
+    const int more = static_cast<int>(items.size()) - n;
+    const juce::String foot = (more > 0 ? "+" + juce::String(more) + " MORE" + dot : juce::String()) + "SOFT CLIP + DC BLOCK ON EVERY LOOP";
+    svgText(g, foot, 696.f, 322.f, 10.f, hex(0x5e5a50), 1, false, 1.f);
 }
 
 // ------------------------------------------------------------------ foot
@@ -990,19 +1074,19 @@ void LiftPanel::paintFoot(Graphics& g) {
         const size_t ii = static_cast<size_t>(i);
         const float x = 16.f + static_cast<float>(i) * (cw + 14.f);
         const juce::Font f = mono(false, 9.f, 0.06f);
-        text(g, L[i], f, hex(SCR[i]), {x, 364.f, cw, 13.5f}, Justification::centredLeft);
-        const juce::String v = encDisplay(i);
+        text(g, L[slotOf(i)], f, hex(KSCR[i]), {x, 364.f, cw, 13.5f}, Justification::centredLeft);
+        const juce::String v = encDisplay(slotOf(i));
         const float vw = cssWidth(400, true, 9.f, 0.06f, v);
         text(g, v, f, hex(0xede6d6), {x + cw - vw, 364.f, vw + 6.f, 13.5f}, Justification::centredLeft);
         g.setColour(hex(0x1c1c1c));
         g.fillRect(x, 383.5f, cw, 6.f);
         // bars spring to the knob (and to the new screen's knobs on a mode change)
         const Spring& s = an_.foot[ii];
-        const float target = encAt(static_cast<int>(ii));
+        const float target = encAt(slotOf(i));
         const bool rest = !s.init || (s.v == 0.f && s.x == target);
         const float w = rest ? cw * static_cast<float>(juce::roundToInt(target * 100.f)) / 100.f
                              : cw * juce::jlimit(0.f, 1.04f, s.x);
-        g.setColour(hex(SCR[i]));
+        g.setColour(hex(KSCR[i]));
         g.fillRect(x, 383.5f, w, 6.f);
     }
 }

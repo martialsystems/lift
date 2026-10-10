@@ -22,7 +22,12 @@ enum SynthEngine : int { LOOM, BEND, FOLD, RATIO, WIRE, SWARM, SPOOL, SPARE, kSy
 struct SynthCv {
     const float* pitch = nullptr;   // volts, 1 V/oct offset on every voice
     const float* fm = nullptr;      // volts: audio-rate FM (1 V = 1/4 semitone), RATIO: +1/4 index per volt
-    const float* cutoff = nullptr;  // volts: the engine's timbre control (+5 V = +20 % of its range)
+    const float* cutoff = nullptr;  // volts: the engine's timbre control (+5 V = +50 % of its range)
+    // Block-rate offsets in knob units (matrix columns, +5 V at +100 % = +0.5):
+    float wave = 0.f;   // the engine's first (shape) macro
+    float decay = 0.f;  // the engine's DECAY (fourth) macro
+    float reso = 0.f;   // filter resonance (LOOM's ladder)
+    float level = 0.f;  // output level (x (1 + level))
 };
 
 class PolySynth {

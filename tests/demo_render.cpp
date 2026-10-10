@@ -146,16 +146,22 @@ int runDemoRenders(const juce::String& dirName, const std::function<void(bool, c
     // 4: self-patched tape wobble: LFO -> SPEED on the recorded line
     d.p->send(lift::Cmd::HardStop);
     d.run(0.1);
-    d.state([](lift::UiState& s) { s.cords = {{lift::eng::O_LFO, lift::eng::I_SPEED, 2, false}}; });
+    d.state([](lift::UiState& s) {
+        s.cords.clear();
+        s.pins.fill(0);
+        s.pins[0 * 16 + 1] = 1;  // pin A2: LFO -> SPEED
+    });
     d.p->send(lift::Cmd::Seek, 0, 0, 0.0);
     d.run(0.05);
     d.p->send(lift::Cmd::Transport, 1, 0);
     save("tape-speed-wobble-lfo-to-speed.wav", d.run(16.0));
-    // 5: feedback: HEAD 2 -> SPEED, HEAD 1 -> FX MAC, with the 808 back on
+    // 5: feedback: HEAD 1 -> SPEED (T1 armed), HEAD 1 -> VCA IN + pin VCA -> FX MAC, with the 808 back on
     d.p->send(lift::Cmd::HardStop);
     d.run(0.1);
     d.state([](lift::UiState& s) {
-        s.cords = {{lift::eng::O_HEAD2, lift::eng::I_SPEED, 1, false}, {lift::eng::O_HEAD1, lift::eng::I_FXMAC, 3, false}};
+        s.cords = {{lift::eng::O_HEAD1, lift::eng::I_SPEED, 4, false}, {lift::eng::O_HEAD1, lift::eng::I_VCAIN, 4, false}};
+        s.pins.fill(0);
+        s.pins[15 * 16 + 14] = 1;  // pin P15: VCA -> FX MAC
         for (int k = 0; k < lift::eng::kKits; ++k)
             for (int v = 0; v < lift::eng::kDrumVoices; ++v)
                 s.drumPat[static_cast<size_t>(k)][static_cast<size_t>(v)] = lift::eng::kitInfo(k).pattern[v];

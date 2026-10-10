@@ -55,6 +55,8 @@ UiState LiftPanel::captureUi() const {
     s.color = color_;
     s.stack = stack_;
     s.cords = cords_;
+    s.pins = pins_;
+    s.recJackLifts = recJackLifts_;
     s.learn = learn_;
     s.drumPat = drumPat_;
     s.drumVoice = drumVoice_;
@@ -88,6 +90,9 @@ void LiftPanel::applyUi(const UiState& s) {
     color_ = s.color;
     stack_ = s.stack;
     cords_ = s.cords;
+    pins_ = s.pins;
+    recJackLifts_ = s.recJackLifts;
+    ropes_.clear();
     learn_ = s.learn;
     drumPat_ = s.drumPat;
     drumKnobs_ = s.drumKnobs;
