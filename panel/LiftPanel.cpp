@@ -850,8 +850,19 @@ void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheel
         pickStep(delta > 0.f ? 1 : -1);
         return;
     }
-    const float step = (e.mods.isShiftDown() || shiftActive()) ? 0.005f : 0.025f;
-    setEnc(k, enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)] + (delta > 0.f ? step : -step));
+    const bool fine = e.mods.isShiftDown() || shiftActive();
+    const float now = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)];
+    if (w.isSmooth) {
+        // trackpad / smooth wheel: proportional to the scroll distance, so the
+        // knob follows the fingers continuously (a full turn over ~1.6 pages)
+        if (w.isInertial) {
+            return;  // no run-on after the fingers lift
+        }
+        setEnc(k, now + delta * (fine ? 0.15f : 0.6f));
+        return;
+    }
+    const float step = fine ? 0.005f : 0.025f;  // one notch
+    setEnc(k, now + (delta > 0.f ? step : -step));
 }
 
 // ---------------------------------------------------------------- keys
