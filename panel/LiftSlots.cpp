@@ -56,6 +56,11 @@ UiState LiftPanel::captureUi() const {
     s.stack = stack_;
     s.cords = cords_;
     s.learn = learn_;
+    s.drumPat = drumPat_;
+    s.drumVoice = drumVoice_;
+    s.drumKnobs = drumKnobs_;
+    s.fxType = fxType_;
+    s.fxKnobs = fxKnobs_;
     return s;
 }
 
@@ -84,6 +89,13 @@ void LiftPanel::applyUi(const UiState& s) {
     stack_ = s.stack;
     cords_ = s.cords;
     learn_ = s.learn;
+    drumPat_ = s.drumPat;
+    drumKnobs_ = s.drumKnobs;
+    fxType_ = s.fxType;
+    fxKnobs_ = s.fxKnobs;
+    fxEdit_ = false;
+    drumVoice_ = s.drumVoice;
+    proc_.drumVoice.store(drumVoice_);
     pick_ = {};
     menu_.open = false;
     publishPatch();

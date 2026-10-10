@@ -91,119 +91,6 @@ void putTape(const std::vector<float>& src, int rate, float* dst, int cap) {
 
 }  // namespace
 
-// ------------------------------------------------------------------ voice
-
-void PlaceholderVoice::noteOn(int n, float velocity) noexcept {
-    int k = 0;
-    for (int i = 0; i < depth; ++i) {
-        if (held[i] != n) {
-            held[k++] = held[i];
-        }
-    }
-    depth = k;
-    if (depth == 16) {
-        for (int i = 1; i < 16; ++i) {
-            held[i - 1] = held[i];
-        }
-        --depth;
-    }
-    held[depth++] = n;
-    note = n;
-    vel = juce::jlimit(0.05f, 1.f, velocity);
-    if (!gate || depth == 1) {
-        fenv = 1.f;  // the filter envelope starts on each new (non-legato) note
-    }
-    gate = true;
-}
-
-void PlaceholderVoice::noteOff(int n) noexcept {
-    if (n < 0) {
-        depth = 0;
-    } else {
-        int k = 0;
-        for (int i = 0; i < depth; ++i) {
-            if (held[i] != n) {
-                held[k++] = held[i];
-            }
-        }
-        depth = k;
-        if (n != note) {
-            return;
-        }
-    }
-    if (depth > 0) {
-        note = held[depth - 1];  // legato back to the last held note
-    } else if (!sustain) {
-        gate = false;
-    }
-}
-
-void PlaceholderVoice::setSustain(bool on) noexcept {
-    sustain = on;
-    if (!on && depth == 0) {
-        gate = false;
-    }
-}
-
-void PlaceholderVoice::allOff() noexcept {
-    depth = 0;
-    sustain = false;
-    gate = false;
-}
-
-void PlaceholderVoice::render(float* out, int n) noexcept {
-    constexpr float sr = static_cast<float>(kSampleRate);
-    const float att = 1.f - std::exp(-1.f / (0.004f * sr));
-    // DECAY: release 0.18 s at the default (0.55), 18 ms .. 2.2 s
-    const float relSec = 0.18f * std::exp2((macro[3] - 0.55f) * 6.f);
-    const float rel = 1.f - std::exp(-1.f / (relSec * sr));
-    const float fdec = 1.f - std::exp(-1.f / (juce::jmax(0.03f, relSec * 1.5f) * sr));
-    // CUTOFF: 2.4 kHz at the default (0.62), 77 Hz .. 16 kHz; ENV AMT sweeps
-    // it by up to +-3 octaves on each note (none at the default 0.48)
-    const float cutBase = 2400.f * std::exp2((macro[1] - 0.62f) * 8.f);
-    const float envOct = (macro[2] - 0.48f) * 6.f;
-    // DETUNE: the square runs 0.4 % sharp at the default (0.35), up to 3 %
-    const double m0 = static_cast<double>(macro[0]) / 0.35;
-    const double ratio2 = 1.0 + 0.004 * m0 * m0;
-    const double base = note >= 0 ? 440.0 * std::pow(2.0, (note - 69 + static_cast<double>(bend)) / 12.0) / kSampleRate : 0.0;
-    const double vibInc = 5.5 / kSampleRate;
-    const float vibDepth = 0.5f * mod;  // up to +-0.5 semitone
-    float lpA = 0.f;
-    for (int i = 0; i < n; ++i) {
-        env += (gate ? att : rel) * ((gate ? 1.f : 0.f) - env);
-        fenv += fdec * (0.f - fenv);
-        if (env < 1e-5f && !gate) {
-            env = 0.f;
-            out[i] = 0.f;
-            continue;
-        }
-        if ((i & 7) == 0) {  // filter coefficient at control rate
-            const float fc = juce::jlimit(40.f, 16000.f, cutBase * std::exp2(envOct * fenv));
-            lpA = 1.f - std::exp(-2.f * 3.14159265f * fc / sr);
-        }
-        double inc = base;
-        if (vibDepth > 0.f) {
-            vibPhase += vibInc;
-            if (vibPhase >= 1.0) {
-                vibPhase -= 1.0;
-            }
-            inc *= 1.0 + 0.0577623 * vibDepth * std::sin(6.283185307179586 * vibPhase);  // ln2/12 per semitone
-        }
-        phase += inc;
-        if (phase >= 1.0) {
-            phase -= 1.0;
-        }
-        phase2 += inc * ratio2;
-        if (phase2 >= 1.0) {
-            phase2 -= 1.0;
-        }
-        const float saw = static_cast<float>(2.0 * phase - 1.0);
-        const float sq = phase2 < 0.5 ? 0.6f : -0.6f;
-        lp += lpA * ((saw + sq) * 0.5f - lp);
-        out[i] = lp * env * 0.5f * (0.25f + 0.75f * vel);
-    }
-}
-
 // ------------------------------------------------------------------ setup
 
 LiftProcessor::LiftProcessor()
@@ -223,6 +110,18 @@ LiftProcessor::LiftProcessor()
     tape_engine_init(monitor_);
     for (auto& k : knobs) {
         k.store(0.f);
+    }
+    // synth, drums, FX and the patch graph all run at the tape rate
+    inst_.prepare(static_cast<double>(kSampleRate));
+    for (int kit = 0; kit < eng::kKits; ++kit) {
+        for (int v = 0; v < eng::kDrumVoices; ++v) {
+            drumPattern[kit * eng::kDrumVoices + v].store(eng::kitInfo(kit).pattern[v]);
+        }
+    }
+    inst_.setPatterns(drumPattern);
+    for (int k = 0; k < 4; ++k) {
+        fxKnobs[k].store(eng::kFxDefaults[eng::FX_SPRING][k]);
+        fxSm_[k].snap(fxKnobs[k].load());
     }
     setAllKnobs(ui_.enc);
     for (int i = 0; i < 20; ++i) {
@@ -284,6 +183,12 @@ void LiftProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
     for (int i = 0; i < 20; ++i) {
         sm_[i].snap(knobs[i].load());
     }
+    for (int k = 0; k < 4; ++k) {
+        fxSm_[k].prepare(static_cast<double>(kSampleRate));
+        fxSm_[k].snap(fxKnobs[k].load());
+    }
+    blkPos_ = eng::kBlock;
+    patchSeq_ = 0xffffffffu;
     scrubPrev_ = -1.f;
     scrubPending_ = 0.0;
     scrubGain_ = 0.f;
@@ -376,24 +281,18 @@ void LiftProcessor::stepKnobs(int n) noexcept {
     // TAPE: BIAS and REC LVL into the record chain (tape and monitor) and the
     // playback gap loss; SPEED goes to the transport per block (the engine
     // glides it), SCRUB per block too.
-    const float b = v[kTapeScreen * 4 + 1];
-    const float d = 1.8f * std::pow(16.f, v[kTapeScreen * 4 + 2] - 0.7f);
-    if (std::abs(b - lastBias_) > 1e-5f || std::abs(d - lastDrive_) > 1e-5f * d) {
-        TapeParams p = rt.engine.p;
-        p.bias = b;
-        p.drive = d;
-        tape_engine_set_params(rt.engine, p);
-        TapeParams q = monitor_.p;
-        q.bias = b;
-        q.drive = d;
-        tape_engine_set_params(monitor_, q);
-        lastBias_ = b;
-        lastDrive_ = d;
-    }
-    // SYNTH: the placeholder voice's macros
+    biasKnob_ = v[kTapeScreen * 4 + 1];
+    driveKnob_ = 1.8f * std::pow(16.f, v[kTapeScreen * 4 + 2] - 0.7f);
+    // SYNTH: the engine's four knobs
+    inst_.synth.setMacros(v);
+    // FX: the insert's four knobs (hold FX)
+    float fx[4];
     for (int k = 0; k < 4; ++k) {
-        voice_.macro[k] = v[0 * 4 + k];
+        fxSm_[k].setTarget(fxKnobs[k].load(std::memory_order_relaxed));
+        fx[k] = fxSm_[k].advance(n);
     }
+    inst_.fx.setParams(fx);
+    threshKnob_ = v[4 * 4 + 3];
     // MIX: level / pan / low / high of the armed track
     const int arm = juce::jlimit(0, kTrackCount - 1, rt.arm);
     const float* mx = v + 3 * 4;
@@ -444,6 +343,7 @@ void LiftProcessor::apply(const Command& c) noexcept {
     }
     case Cmd::Stop:
         rt.reverse = false;
+        userRev_ = false;
         rt.recording = false;
         transport_tape_stop(rt, kStopRampSeconds);
         break;
@@ -534,7 +434,8 @@ void LiftProcessor::apply(const Command& c) noexcept {
         recSource_ = juce::jlimit(0, 2, c.a);
         break;
     case Cmd::Rev:
-        rt.reverse = c.a != 0;
+        userRev_ = c.a != 0;
+        rt.reverse = userRev_;
         break;
     case Cmd::Loop:
         rt.loopStart = 0;
@@ -557,14 +458,30 @@ void LiftProcessor::apply(const Command& c) noexcept {
         break;
     case Cmd::NoteOn: {
         const int vel = c.b > 0 ? juce::jmin(127, c.b) : 100;
-        voice_.noteOn(c.a, static_cast<float>(vel) / 127.f);
+        inst_.noteOn(c.a, static_cast<float>(vel) / 127.f);
         if (outNoteCount_ < 32) {
             outNotes_[outNoteCount_++] = (c.a & 0x7f) | (vel << 8);
         }
         break;
     }
+    case Cmd::DrumHit:
+        inst_.drumHit(c.a, static_cast<float>(c.b > 0 ? juce::jmin(127, c.b) : 100) / 127.f);
+        break;
+    case Cmd::DrumKnob:
+        if (c.a >= 0 && c.a < eng::kDrumVoices && c.b >= 0 && c.b < 3) {
+            float* k = &drumKnobs_[c.a].pitch;
+            k[c.b] = static_cast<float>(c.v);
+            inst_.drums.setKnobs(c.a, drumKnobs_[c.a]);
+        }
+        break;
+    case Cmd::FxType:
+        inst_.fx.setType(c.a);
+        break;
+    case Cmd::AllNotesOff:
+        inst_.allOff();
+        break;
     case Cmd::NoteOff:
-        voice_.noteOff(c.a);
+        inst_.noteOff(c.a);
         if (outNoteCount_ < 32) {
             outNotes_[outNoteCount_++] = c.a >= 0 ? -1 - (c.a & 0x7f) : -1000;
         }
@@ -576,22 +493,26 @@ void LiftProcessor::apply(const Command& c) noexcept {
 
 void LiftProcessor::handleMidiIn(const juce::MidiMessage& m, int samplePos) noexcept {
     TapeRuntime& rt = *rt_;
-    if (m.isNoteOn()) {
-        voice_.noteOn(m.getNoteNumber(), static_cast<float>(m.getVelocity()) / 127.f);
+    if (m.isNoteOn() && m.getChannel() == 10) {
+        inst_.drumHit(gmDrumVoice(m.getNoteNumber()), static_cast<float>(m.getVelocity()) / 127.f);
+    } else if (m.isNoteOff() && m.getChannel() == 10) {
+        // drums are one-shots
+    } else if (m.isNoteOn()) {
+        inst_.noteOn(m.getNoteNumber(), static_cast<float>(m.getVelocity()) / 127.f);
     } else if (m.isNoteOff()) {
-        voice_.noteOff(m.getNoteNumber());
+        inst_.noteOff(m.getNoteNumber());
     } else if (m.isPitchWheel()) {
-        voice_.bend = 2.f * static_cast<float>(m.getPitchWheelValue() - 8192) / 8192.f;
+        inst_.synth.setBend(2.f * static_cast<float>(m.getPitchWheelValue() - 8192) / 8192.f);
     } else if (m.isController()) {
         const int cc = m.getControllerNumber(), v = m.getControllerValue();
         if (cc == 1) {
-            voice_.mod = static_cast<float>(v) / 127.f;
+            inst_.synth.setMod(static_cast<float>(v) / 127.f);
         } else if (cc == 64) {
-            voice_.setSustain(v >= 64);
+            inst_.synth.setSustain(v >= 64);
         } else if (cc == 0) {
             bankMsb_ = v;
         } else if (cc == 120 || cc == 123) {
-            voice_.allOff();
+            inst_.allOff();
         } else if (cc != 32) {
             post(0, cc, v);
         }
@@ -662,30 +583,173 @@ void LiftProcessor::renderInternal(float* outL, float* outR, int m) noexcept {
             clearTrack_ = -1;
         }
     }
-    constexpr int kSub = 32;  // knob control rate: 0.67 ms
-    for (int off = 0; off < m; off += kSub) {
-        const int n = juce::jmin(kSub, m - off);
-        stepKnobs(n);
-        renderSub(outL + off, outR + off, off, n);
+    // Everything runs in fixed 32-sample blocks (the patch graph's block,
+    // the knobs' control rate); host blocks of any size pull from them.
+    for (int i = 0; i < m;) {
+        if (blkPos_ >= eng::kBlock) {
+            renderBlock32(blkL_, blkR_);
+            blkPos_ = 0;
+        }
+        const int take = juce::jmin(m - i, eng::kBlock - blkPos_);
+        for (int k = 0; k < take; ++k) {
+            outL[i + k] = blkL_[blkPos_ + k];
+            if (outR != outL) {
+                outR[i + k] = blkR_[blkPos_ + k];
+            }
+        }
+        blkPos_ += take;
+        i += take;
     }
 }
 
-void LiftProcessor::renderSub(float* outL, float* outR, int off, int m) noexcept {
+void LiftProcessor::renderTape(float* outL, float* outR, int n) noexcept {
+    renderInternal(outL, outR, n);
+}
+
+int LiftProcessor::gmDrumVoice(int note) noexcept {
+    switch (note) {
+    case 35: return 1;   // acoustic bass drum -> KICK 2
+    case 36: return 0;   // KICK
+    case 37: return 3;   // side stick -> RIM
+    case 38: case 40: return 2;  // SNARE
+    case 39: return 4;   // CLAP
+    case 41: case 43: return 11;  // LO TOM
+    case 45: case 47: return 12;  // MID TOM
+    case 48: case 50: return 13;  // HI TOM
+    case 42: case 44: return 8;   // CL HAT
+    case 46: return 9;   // OP HAT
+    case 49: case 51: case 52: case 55: case 57: case 59: return 10;  // CYMBAL
+    case 56: return 7;   // COWBELL
+    case 75: return 5;   // CLAVE
+    case 70: case 69: return 6;   // SHAKER
+    default: return note >= 60 && note < 74 ? note - 60 : -1;
+    }
+}
+
+void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     TapeRuntime& rt = *rt_;
-    float* s = synth_.get() + off;
-    voice_.render(s, m);
-    pushScope(s, m);
-    // IN GAIN, ramped across the sub-block
+    // patch changes: re-read the published plan only when it moved
+    const uint32_t ver = patch.version();
+    if (ver != patchSeq_ && (ver & 1u) == 0) {
+        static thread_local PatchSnapshot snap;  // audio thread only; no allocation after the first use
+        if (patch.read(snap)) {
+            inst_.setPatch(snap.plan);
+            patchSeq_ = ver;
+        }
+    }
+    stepKnobs(eng::kBlock);
+    inst_.synth.setEngine(synthEngine.load(std::memory_order_relaxed));
+    const int arm = juce::jlimit(0, kTrackCount - 1, rt.arm);
+    inst_.synth.setSpoolSource(rt.ch[arm][0], rt.ch[arm][1], rt.frames, rt.loopStart, rt.loopEnd);
+    eng::InstrumentCtl ctl;
+    ctl.running = rt.playing || rt.recording;
+    ctl.bpm = tempoBpm.load(std::memory_order_relaxed);
+    ctl.stepDiv = drumStepDiv.load(std::memory_order_relaxed);
+    ctl.arpDiv = seqStepDiv.load(std::memory_order_relaxed);
+    ctl.length = drumLength.load(std::memory_order_relaxed);
+    ctl.swing = drumSwing.load(std::memory_order_relaxed);
+    ctl.kit = drumKit.load(std::memory_order_relaxed);
+    ctl.selVoice = drumVoice.load(std::memory_order_relaxed);
+    ctl.fxOn = fxOn.load(std::memory_order_relaxed);
+    ctl.transpose = transposeSemis.load(std::memory_order_relaxed);
+    inst_.block(*this, ctl, outL, outR);
+    // per-jack signal level for the BAY screen's travelling dots (fast up, slow down)
+    for (int j = 0; j < eng::kJacks; ++j) {
+        const float* o = inst_.router.out(j);
+        float pk = 0.f;
+        for (int i = 0; i < eng::kBlock; ++i) {
+            pk = std::max(pk, std::abs(o[i]));
+        }
+        jackLvl_[j] = std::max(pk, jackLvl_[j] * 0.985f);
+        uiJackLevel[j].store(jackLvl_[j], std::memory_order_relaxed);
+    }
+}
+
+void LiftProcessor::tapeBlock(const float* srcL, const float* srcR, const float* speedCv, bool reversePatched,
+                              bool reverse, const float* biasCv, float* outL, float* outR, float* head1, float* head2,
+                              int m) noexcept {
+    TapeRuntime& rt = *rt_;
+    float sl[eng::kBlock], sr[eng::kBlock];
+    for (int i = 0; i < m; ++i) {
+        sl[i] = srcL[i];
+        sr[i] = srcR[i];
+    }
+    pushScope(sl, m);
+    // IN GAIN, ramped across the block
     if (inGain_ != 1.f || inGainPrev_ != 1.f) {
         const float step = (inGain_ - inGainPrev_) / static_cast<float>(m);
         float gg = inGainPrev_;
         for (int i = 0; i < m; ++i) {
             gg += step;
-            s[i] *= gg;
+            sl[i] *= gg;
+            sr[i] *= gg;
         }
     }
-    // record source: the placeholder voice, the (not yet built) input, or the tape output
-    const float* in = recSource_ == 0 ? s : recSource_ == 1 ? zero_.get() + off : resample_.get() + off;
+    // IN THRESH: a gate on the record source (-80 dB at 0 .. -30 dB at full;
+    // 1 ms open, 60 ms hold, 120 ms close), so quiet tails and hiss stay off tape
+    {
+        const float thrDb = -80.f + 50.f * threshKnob_;
+        const float thr = std::pow(10.f, thrDb / 20.f);
+        const float aOpen = 1.f - std::exp(-1.f / (0.001f * kSampleRate));
+        const float aClose = 1.f - std::exp(-1.f / (0.12f * kSampleRate));
+        for (int i = 0; i < m; ++i) {
+            const float a = std::fmax(std::fabs(sl[i]), std::fabs(sr[i]));
+            if (a > thr) {
+                gateHold_ = static_cast<int>(0.06f * kSampleRate);
+            } else if (gateHold_ > 0) {
+                --gateHold_;
+            }
+            const float target = gateHold_ > 0 ? 1.f : 0.f;
+            gateEnv_ += (target > gateEnv_ ? aOpen : aClose) * (target - gateEnv_);
+            sl[i] *= gateEnv_;
+            sr[i] *= gateEnv_;
+        }
+        uiGateOpen.store(gateHold_ > 0, std::memory_order_relaxed);
+    }
+    // record source: synth + drums through FX, the (not yet built) input, or the tape output
+    const float* inL = recSource_ == 0 ? sl : recSource_ == 1 ? zero_.get() : resample_.get();
+    const float* inR = recSource_ == 0 ? sr : recSource_ == 1 ? zero_.get() : resample_.get();
+    // BIAS jack (+5 V = +1 on the knob's 0..1) and REC LVL into both record chains
+    {
+        float b = biasKnob_;
+        if (biasCv != nullptr) {
+            float mean = 0.f;
+            for (int i = 0; i < m; ++i) mean += biasCv[i];
+            b = juce::jlimit(0.f, 1.f, b + mean / static_cast<float>(m) / 5.f);
+        }
+        const float d = driveKnob_;
+        if (std::abs(b - lastBias_) > 1e-4f || std::abs(d - lastDrive_) > 1e-5f * d) {
+            TapeParams p = rt.engine.p;
+            p.bias = b;
+            p.drive = d;
+            tape_engine_set_params(rt.engine, p);
+            TapeParams q = monitor_.p;
+            q.bias = b;
+            q.drive = d;
+            tape_engine_set_params(monitor_, q);
+            lastBias_ = b;
+            lastDrive_ = d;
+        }
+    }
+    // REVERSE jack: high = backwards while patched; the panel's REV returns when unpatched
+    if (reversePatched) {
+        rt.reverse = reverse;
+        cvRev_ = true;
+    } else if (cvRev_) {
+        rt.reverse = userRev_;
+        cvRev_ = false;
+    }
+    // SPEED jack: 1 V = 1 semitone, after the motor's glide (audio rate)
+    if (speedCv != nullptr) {
+        for (int i = 0; i < m; ++i) {
+            speedCvMul_[i] = std::exp2(juce::jlimit(-36.f, 36.f, speedCv[i]) / 12.f);
+        }
+        rt.speedMul = speedCvMul_;
+    } else {
+        rt.speedMul = nullptr;
+    }
+    rt.head1Out = head1;
+    rt.head2Out = head2;
     if (rt.playing && rt.frames > 0) {
         // Track meters: peak of what is on each track under the head.
         const int p0 = juce::jlimit(0, rt.frames - 1, static_cast<int>(rt.pos));
@@ -701,7 +765,10 @@ void LiftProcessor::renderSub(float* outL, float* outR, int off, int m) noexcept
             trackPeak_[t] = juce::jmax(trackPeak_[t], pk);
         }
     }
-    process_block(rt, in, in, outL, outR, m);
+    process_block(rt, inL, inR, outL, outR, m);
+    rt.speedMul = nullptr;
+    rt.head1Out = nullptr;
+    rt.head2Out = nullptr;
     // SCRUB by hand while the transport is stopped: the heads read the tape
     // as it moves, louder the faster it goes, silent when it stands still
     if (!rt.playing && !rt.recording && rt.frames > 0 && (scrubPending_ != 0.0 || scrubGain_ > 0.f)) {
@@ -730,20 +797,19 @@ void LiftProcessor::renderSub(float* outL, float* outR, int off, int m) noexcept
             }
             outL[i] += l;
             outR[i] += r;
+            head1[i] = 0.5f * (l + r);
         }
     }
     for (int i = 0; i < m; ++i) {
-        resample_[static_cast<size_t>(off + i)] = outL[i];
+        resample_[static_cast<size_t>(i)] = 0.5f * (outL[i] + outR[i]);
     }
-    // input monitor through the record electronics (REC LVL, BIAS)
+    // source monitor through the record electronics (REC LVL, BIAS)
     float* ml = monL_.get();
     float* mr = monR_.get();
-    tape_engine_record(monitor_, s, s, ml, mr, m);
+    tape_engine_record(monitor_, sl, sr, ml, mr, m);
     for (int i = 0; i < m; ++i) {
         outL[i] += ml[i];
-        if (outR != outL) {
-            outR[i] += mr[i];
-        }
+        outR[i] += mr[i];
     }
 }
 
@@ -870,8 +936,17 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         uiTrackLevel[t].store(trackPeak_[t], std::memory_order_relaxed);
     }
     uiMasterLevel.store(buffer.getMagnitude(0, 0, n), std::memory_order_relaxed);
-    uiSynthEnv.store(voice_.env, std::memory_order_relaxed);
-    uiSynthNote.store(voice_.gate ? voice_.note : -1, std::memory_order_relaxed);
+    uiSynthEnv.store(inst_.synth.env(), std::memory_order_relaxed);
+    uiSynthNote.store(inst_.synth.anyGate() ? inst_.synth.lastNote() : -1, std::memory_order_relaxed);
+    for (int v = 0; v < eng::kSynthVoices; ++v) {
+        uiVoiceEnv[v].store(inst_.synth.voiceEnv(v), std::memory_order_relaxed);
+    }
+    uiDrumStep.store(inst_.step(), std::memory_order_relaxed);
+    uiDrumHits.fetch_or(inst_.takeHits(), std::memory_order_relaxed);
+    for (int v = 0; v < eng::kDrumVoices; ++v) {
+        uiDrumEnv[v].store(inst_.drums.envelope(v), std::memory_order_relaxed);
+    }
+    uiSpringShake.store(inst_.fx.shake(), std::memory_order_relaxed);
     uiWowPhase.store(static_cast<float>(rt.engine.wowPhase), std::memory_order_relaxed);
     uiWowDepth.store(rt.engine.p.wowDepth + rt.engine.p.flutterDepth, std::memory_order_relaxed);
     uiLoopStart.store(rt.loopStart, std::memory_order_relaxed);
@@ -990,8 +1065,37 @@ void LiftProcessor::drainMidiEvents() {
 // ------------------------------------------------------------------ state
 
 void LiftProcessor::setUiState(const UiState& s) {
+    const UiState prev = ui_;
     ui_ = s;
     setAllKnobs(s.enc);
+    applyExtras(s, &prev);
+}
+
+void LiftProcessor::applyExtras(const UiState& s, const UiState* prev) {
+    for (int k = 0; k < eng::kKits; ++k) {
+        for (int v = 0; v < eng::kDrumVoices; ++v) {
+            drumPattern[k * eng::kDrumVoices + v].store(s.drumPat[static_cast<size_t>(k)][static_cast<size_t>(v)]);
+        }
+    }
+    for (int v = 0; v < eng::kDrumVoices; ++v) {
+        for (int p = 0; p < 3; ++p) {
+            const float x = s.drumKnobs[static_cast<size_t>(v)][static_cast<size_t>(p)];
+            if (prev == nullptr || prev->drumKnobs[static_cast<size_t>(v)][static_cast<size_t>(p)] != x) {
+                send(Cmd::DrumKnob, v, p, x);
+            }
+        }
+    }
+    drumVoice.store(s.drumVoice);
+    fxOn.store(s.fx);
+    if (prev == nullptr || prev->fxType != s.fxType) {
+        send(Cmd::FxType, s.fxType);
+    }
+    drumKit.store(s.sel[1]);
+    synthEngine.store(s.sel[0]);
+    for (int k = 0; k < 4; ++k) {
+        fxKnobs[k].store(s.fxKnobs[static_cast<size_t>(juce::jlimit(0, eng::kFxTypes - 1, s.fxType))][static_cast<size_t>(k)]);
+    }
+    transposeSemis.store(s.transpose);
 }
 
 juce::MemoryBlock LiftProcessor::saveState() {
@@ -1005,7 +1109,9 @@ juce::MemoryBlock LiftProcessor::saveState() {
     const juce::String xml = ui_.toTree().toXmlString();
     out.writeInt(static_cast<int>(xml.getNumBytesAsUTF8()));
     out.write(xml.toRawUTF8(), xml.getNumBytesAsUTF8());
-    suspendProcessing(true);
+    // No suspendProcessing here: holding the callback lock for the copy
+    // paused the audio. The copy reads the tape while it may be recording; a
+    // sample written mid-copy lands in the next save.
     const TapeRuntime& rt = *rt_;
     out.writeInt(kSampleRate);
     out.writeInt(rt.frames);
@@ -1031,7 +1137,6 @@ juce::MemoryBlock LiftProcessor::saveState() {
     for (int c = 0; c < 2; ++c) {
         writeFloats(out, rt.clip[c], clipN);
     }
-    suspendProcessing(false);
     return out.getMemoryBlock();
 }
 
@@ -1117,7 +1222,7 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     recSource_ = s.recSource;
     undoStart_ = -1;
     clearTrack_ = -1;
-    voice_.allOff();
+    inst_.allOff();
     fifo_.reset();  // drop panel commands that predate the load
     uiPos.store(rt.pos);
     uiPlaying.store(false);
@@ -1136,6 +1241,7 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     drumSwing.store(s.swing);
     drumKit.store(s.sel[1]);
     synthEngine.store(s.sel[0]);
+    applyExtras(s, nullptr);
     patch.publish(s.cords);
     auto* mm = juce::MessageManager::getInstanceWithoutCreating();
     if (mm != nullptr && !mm->isThisTheMessageThread()) {
@@ -1200,6 +1306,18 @@ LiftProcessor::LoadResult LiftProcessor::loadSlot(int slot) {
 bool LiftProcessor::reopenLast() {
     const int s = slots_.lastSlot();
     return s != 0 && loadSlot(s) == LoadResult::Ok;
+}
+
+void LiftProcessor::saveStateToFileAsync(const juce::File& f, std::function<void(bool)> done) {
+    auto blob = std::make_shared<juce::MemoryBlock>(saveState());
+    io_.addJob([f, blob, done = std::move(done)] {
+        const bool ok = f.replaceWithData(blob->getData(), blob->getSize());
+        juce::MessageManager::callAsync([done, ok] {
+            if (done) {
+                done(ok);
+            }
+        });
+    });
 }
 
 void LiftProcessor::getStateInformation(juce::MemoryBlock& dest) {

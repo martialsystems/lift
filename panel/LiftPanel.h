@@ -256,6 +256,17 @@ private:
     void paintPicker(juce::Graphics& g);
     UiState lastPushed_;
     std::array<int, 128> learn_;
+    // DRUM patterns and per-voice knobs, FX type and knobs (mirrored in UiState)
+    std::array<std::array<uint32_t, eng::kDrumVoices>, eng::kKits> drumPat_{};
+    int drumVoice_ = 0;
+    std::array<std::array<float, 3>, eng::kDrumVoices> drumKnobs_{};
+    int fxType_ = 0;
+    std::array<std::array<float, 4>, eng::kFxTypes> fxKnobs_{};
+    bool fxEdit_ = false;      // the four knobs set the effect (long-press FX)
+    double fxDownT_ = -1.0;
+    float encAt(int i) const;  // the value knob i shows (the screen's, or the effect's in FX edit)
+    void selectDrumVoice(int v, bool announce);
+    void toggleStep(int step);
     bool learnArm_ = false;
     int heldMidi_ = -1;
     int seenTransport_ = 0;

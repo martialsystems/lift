@@ -3,6 +3,8 @@
 #pragma once
 
 #include "PatchBay.h"
+#include "engine/drums.h"
+#include "engine/fx.h"
 
 #include <juce_data_structures/juce_data_structures.h>
 
@@ -45,6 +47,14 @@ struct UiState {
     bool stack = false;
     std::vector<Cord> cords;
     std::array<int, 128> learn;  // CC number -> knob target, -1 = not learned
+    // DRUM: step patterns per kit and voice (bit s = step s), the voice the
+    // DRUM knobs play, and each voice's PITCH / CHOKE / DECAY knob.
+    std::array<std::array<uint32_t, eng::kDrumVoices>, eng::kKits> drumPat{};
+    int drumVoice = 0;
+    std::array<std::array<float, 3>, eng::kDrumVoices> drumKnobs{};
+    // FX: the insert's type and its four knobs per type
+    int fxType = 0;
+    std::array<std::array<float, 4>, eng::kFxTypes> fxKnobs{};
 
     UiState();
     bool operator==(const UiState&) const = default;

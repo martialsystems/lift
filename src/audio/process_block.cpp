@@ -27,7 +27,7 @@ float metronome_tick(TapeRuntime& rt) noexcept {
 // One chunk. The record chain runs as a block first: it needs the input and,
 // for sound on sound, what is already on the armed track at each capture
 // position. Its output is written back where it was captured, latency later.
-void process_chunk(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, int n) noexcept {
+void process_chunk(TapeRuntime& rt, const float* inL, const float* inR, float* outL, float* outR, int n, int base) noexcept {
     float tick[kChunk];
     float srcL[kChunk];
     float srcR[kChunk];
@@ -76,9 +76,22 @@ void process_chunk(TapeRuntime& rt, const float* inL, const float* inR, float* o
                 }
             }
         }
-        const float speed = tape_engine_next_speed(rt.engine, rt.varispeed);
+        float speed = tape_engine_next_speed(rt.engine, rt.varispeed);
+        if (rt.speedMul != nullptr) {
+            speed *= rt.speedMul[base + i];
+        }
         float sumL = 0.f;
         float sumR = 0.f;
+        float h2 = 0.f;
+        const bool head2 = rt.head2Out != nullptr;
+        double p2 = 0.0;
+        if (head2) {
+            p2 = rt.pos + (rt.reverse ? rt.head2Gap : -rt.head2Gap);
+            const double span = rt.loopEnd > rt.loopStart ? rt.loopEnd - rt.loopStart : rt.frames;
+            const double lo = rt.loopEnd > rt.loopStart ? rt.loopStart : 0;
+            while (p2 < lo) p2 += span;
+            while (p2 >= lo + span) p2 -= span;
+        }
         for (int t = 0; t < kTrackCount; ++t) {
             if (rt.mute[t] || rt.fader[t] == 0.f) {
                 continue;
@@ -103,10 +116,21 @@ void process_chunk(TapeRuntime& rt, const float* inL, const float* inR, float* o
             }
             sumL += xl * rt.panL[t];
             sumR += xr * rt.panR[t];
+            if (head2) {
+                h2 += 0.5f * rt.fader[t] *
+                      (read_looped(bufL, rt.frames, p2, rt.loopStart, rt.loopEnd, false) * rt.panL[t] +
+                       read_looped(bufR, rt.frames, p2, rt.loopStart, rt.loopEnd, false) * rt.panR[t]);
+            }
         }
         // Every track shares the heads and the tape path, so the playback
         // chain runs once on the mix.
         tape_engine_play(rt.engine, sumL, sumR);
+        if (rt.head1Out != nullptr) {
+            rt.head1Out[base + i] = 0.5f * (sumL + sumR);
+        }
+        if (head2) {
+            rt.head2Out[base + i] = h2 * rt.engine.ramp;
+        }
         if (!rt.resampleInput) {
             sumL += tick[i];
             sumR += tick[i];
@@ -131,6 +155,8 @@ void process_block(TapeRuntime& rt, const float* inL, const float* inR, float* o
         for (int i = 0; i < n; ++i) {
             outL[i] = 0.f;
             outR[i] = 0.f;
+            if (rt.head1Out != nullptr) rt.head1Out[i] = 0.f;
+            if (rt.head2Out != nullptr) rt.head2Out[i] = 0.f;
         }
         rt.recWas = false;
         return;
@@ -139,12 +165,14 @@ void process_block(TapeRuntime& rt, const float* inL, const float* inR, float* o
     for (int start = 0; start < n; start += kChunk) {
         const int m = n - start < kChunk ? n - start : kChunk;
         process_chunk(rt, inL != nullptr ? inL + start : nullptr, inR != nullptr ? inR + start : nullptr,
-                      outL + start, outR + start, m);
+                      outL + start, outR + start, m, start);
         if (tape_engine_halted(rt.engine)) {
             transport_stop(rt);
             for (int i = start + m; i < n; ++i) {
                 outL[i] = 0.f;
                 outR[i] = 0.f;
+                if (rt.head1Out != nullptr) rt.head1Out[i] = 0.f;
+                if (rt.head2Out != nullptr) rt.head2Out[i] = 0.f;
             }
             break;
         }

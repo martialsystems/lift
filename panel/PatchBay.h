@@ -2,13 +2,17 @@
 
 #pragma once
 
+#include "engine/patch.h"
+
 #include <atomic>
 #include <cstdint>
 #include <vector>
 
 // Patch bay model. The panel owns the editable list on the message thread and
 // publishes a fixed-size snapshot the audio thread can read without locks or
-// allocation (seqlock). Routing the cords as audio/CV is not built yet.
+// allocation (seqlock). The snapshot carries the routing plan (feedback
+// cables, run order: eng::planPatch, computed here on the message thread),
+// which the audio thread's patch graph (engine/patch.h) plays.
 
 namespace lift {
 
@@ -26,20 +30,28 @@ struct Cord {
 struct PatchSnapshot {
     int count = 0;
     Cord cords[kMaxCords];
+    eng::PatchPlan plan;
 };
 
 class PatchBayModel {
 public:
     // Message thread.
-    void publish(const std::vector<Cord>& cords) noexcept {
+    void publish(const std::vector<Cord>& cords) {
+        const int n = static_cast<int>(cords.size()) < kMaxCords ? static_cast<int>(cords.size()) : kMaxCords;
+        int os[kMaxCords], is[kMaxCords];
+        for (int k = 0; k < n; ++k) {
+            os[k] = cords[static_cast<size_t>(k)].o;
+            is[k] = cords[static_cast<size_t>(k)].i;
+        }
+        plan_ = eng::planPatch(os, is, n);  // allocates: before the write window
         const uint32_t s = seq_.load(std::memory_order_relaxed);
         seq_.store(s + 1, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_release);
-        const int n = static_cast<int>(cords.size()) < kMaxCords ? static_cast<int>(cords.size()) : kMaxCords;
         for (int k = 0; k < n; ++k) {
             snap_.cords[k] = cords[static_cast<size_t>(k)];
         }
         snap_.count = n;
+        snap_.plan = plan_;
         std::atomic_thread_fence(std::memory_order_release);
         seq_.store(s + 2, std::memory_order_release);
     }
@@ -60,6 +72,11 @@ public:
         return false;
     }
 
+    // Version: changes on every publish (the audio thread re-reads only then).
+    uint32_t version() const noexcept { return seq_.load(std::memory_order_acquire); }
+    // Message thread: the plan last published (the BAY screen's feedback marks).
+    const eng::PatchPlan& plan() const noexcept { return plan_; }
+
     // Convenience for the engine: is output o patched into input i?
     static bool connected(const PatchSnapshot& s, int o, int i) noexcept {
         for (int k = 0; k < s.count; ++k) {
@@ -73,6 +90,7 @@ public:
 private:
     std::atomic<uint32_t> seq_{0};
     PatchSnapshot snap_;
+    eng::PatchPlan plan_;  // message-thread copy
 };
 
 }  // namespace lift

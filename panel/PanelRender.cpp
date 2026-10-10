@@ -220,7 +220,7 @@ juce::uint64 LiftPanel::partSig(int p) const {
     }
     p -= 32;
     if (p < 4) {
-        h = mix(h, fbits(enc_[static_cast<size_t>(mode_)][static_cast<size_t>(p)]));
+        h = mix(h, fbits(encAt(p)));
         return mix(h, shash(labels()[p]));
     }
     p -= 4;
@@ -428,7 +428,7 @@ void LiftPanel::blit(Graphics& g, float phys, juce::uint64 variant, Rectangle<fl
 void LiftPanel::paintKnob(Graphics& g, float phys, int i) {
     KnobImg& K = knobImg_[static_cast<size_t>(i)];
     const float dps = scale_ * phys;
-    const float v = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
+    const float v = encAt(i);
     const juce::Point<float> org = knobOrigin(i) + juce::Point<float>(kDevX, kDevY);
     if (K.dps != dps) {
         K.dps = dps;

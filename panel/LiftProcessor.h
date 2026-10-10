@@ -16,6 +16,7 @@
 
 struct TapeRuntime;
 #include "tape/engine.h"
+#include "engine/instrument.h"
 
 namespace lift {
 
@@ -47,7 +48,11 @@ enum class Cmd : uint8_t {
     Clear,       // a = track; cleared in slices over the next blocks
     Jump,        // v = frame; works while playing (Seek only while stopped)
     Character,   // a = tape character row
-    RecSource    // a = 0 synth, 1 input (placeholder: silence), 2 resample (tape out)
+    RecSource,   // a = 0 synth, 1 input (placeholder: silence), 2 resample (tape out)
+    DrumHit,     // a = voice, b = velocity 1..127
+    DrumKnob,    // a = voice, b = 0 pitch / 1 choke / 2 decay, v = 0..1
+    FxType,      // a = effect (eng::FxType)
+    AllNotesOff  // every synth voice, now
 };
 
 struct Command {
@@ -55,37 +60,6 @@ struct Command {
     int a;
     int b;
     double v;
-};
-
-// PLACEHOLDER SOUND SOURCE. One saw + square voice with a filter and an AR
-// envelope so the keyboard has something to print to tape. It stands in for
-// the real engines (Loom ... Spool), which are not built yet. Mono, last-note
-// priority (legato back to a held note), velocity, pitch bend (+-2 semitones),
-// mod wheel vibrato and sustain pedal. Always runs at the tape rate (48 kHz).
-struct PlaceholderVoice {
-    double phase = 0.0;
-    double phase2 = 0.0;
-    double vibPhase = 0.0;
-    float env = 0.f;
-    float lp = 0.f;
-    float vel = 0.8f;
-    float bend = 0.f;   // semitones
-    float mod = 0.f;    // 0..1 vibrato depth (CC1)
-    // The SYNTH screen's four knobs (smoothed, 0..1), the same for every
-    // engine on this placeholder: 0 detune / timbre, 1 filter cutoff,
-    // 2 filter envelope amount (centre = none), 3 decay / release.
-    float macro[4] = {0.35f, 0.62f, 0.48f, 0.55f};
-    float fenv = 0.f;   // filter envelope
-    bool gate = false;
-    bool sustain = false;
-    int note = -1;
-    int held[16] = {};
-    int depth = 0;
-    void noteOn(int n, float velocity) noexcept;
-    void noteOff(int n) noexcept;  // n < 0: release every held note
-    void setSustain(bool on) noexcept;
-    void allOff() noexcept;
-    void render(float* out, int n) noexcept;
 };
 
 // Message thread -> audio thread events are Commands; these go the other way
@@ -96,7 +70,7 @@ struct MidiEvent {
     int b;
 };
 
-class LiftProcessor : public juce::AudioProcessor, private juce::Timer {
+class LiftProcessor : public juce::AudioProcessor, private juce::Timer, private eng::TapeHost {
 public:
     LiftProcessor();
     ~LiftProcessor() override;
@@ -142,7 +116,15 @@ public:
     std::atomic<int> drumLength{16};   // steps
     std::atomic<int> drumSwing{0};     // percent
     std::atomic<int> drumKit{0};
-    std::atomic<int> synthEngine{0};   // the placeholder voice plays for every engine
+    std::atomic<int> synthEngine{0};   // eng::SynthEngine
+    std::atomic<int> drumVoice{0};     // the voice the DRUM knobs (and the SLICE jack) play
+    std::atomic<bool> fxOn{true};      // the FX pad: insert on / bypassed
+    std::atomic<int> transposeSemis{0};
+    // DRUM patterns: [kit * 14 + voice], bit s = step s (32 steps). The panel
+    // writes them, the sequencer reads them (no locks).
+    std::atomic<uint32_t> drumPattern[eng::kKits * eng::kDrumVoices];
+    // FX knobs (hold FX and turn the four knobs), 0..1, smoothed on the audio side
+    std::atomic<float> fxKnobs[4];
     // TAPE knobs (SPEED, BIAS, REC LVL) -> the engine atomics above.
     void setTapeKnobs(const std::array<float, 4>& tape) noexcept;
     // Every screen knob, screen * 4 + knob (0..1). The audio thread follows
@@ -168,6 +150,8 @@ public:
     void setListener(Listener* l) noexcept { listener_ = l; }
     const UiState& uiState() const noexcept { return ui_; }
     void setUiState(const UiState& s);
+    // patterns, drum knobs, FX, kit and engine: from a state to the engine (prev: send only changes)
+    void applyExtras(const UiState& s, const UiState* prev);
 
     enum class LoadResult { Ok, Empty, BadSlot, BadData, NewerVersion };
     bool saveSlot(int slot);
@@ -205,12 +189,19 @@ public:
     std::atomic<int> uiClipFrames{0};
     std::atomic<float> uiTrackLevel[4] = {};  // peak of each track under the head (0 when muted)
     std::atomic<float> uiMasterLevel{0.f};    // output peak of the last block
-    std::atomic<float> uiSynthEnv{0.f};       // placeholder voice envelope
+    std::atomic<float> uiSynthEnv{0.f};       // loudest synth voice envelope
     std::atomic<int> uiSynthNote{-1};
+    std::atomic<float> uiVoiceEnv[eng::kSynthVoices] = {};  // the six voice lights
+    std::atomic<int> uiDrumStep{-1};          // sequencer step on show, -1 stopped
+    std::atomic<float> uiJackLevel[eng::kJacks] = {};  // OUT jack signal level (peak, slow release)
+    std::atomic<uint32_t> uiDrumHits{0};      // voices hit since the panel last cleared it (fetch_or)
+    std::atomic<float> uiDrumEnv[eng::kDrumVoices] = {};
+    std::atomic<float> uiSpringShake{0.f};
+    std::atomic<bool> uiGateOpen{false};      // IN THRESH gate open
     std::atomic<float> uiWowPhase{0.f};       // engine wow LFO phase, radians
     std::atomic<float> uiWowDepth{0.f};       // wow + flutter depth (fraction)
 
-    // Scope tap: the placeholder voice output (48 kHz), written by the audio
+    // Scope tap: the synth output (48 kHz), written by the audio
     // thread into a fixed single-producer/single-consumer ring (no locks, no
     // allocation). The panel drains it on the message thread.
     static constexpr int kScopeSize = 8192;
@@ -218,12 +209,16 @@ public:
 
     // Test access (not real-time safe to use while audio runs).
     TapeRuntime& runtime() noexcept { return *rt_; }
-    const PlaceholderVoice& voice() const noexcept { return voice_; }
+    eng::Instrument& instrument() noexcept { return inst_; }
+    // Offline render at the tape rate (tests, demo renders): n samples, any n.
+    void renderTape(float* outL, float* outR, int n) noexcept;
+    // Standalone "Save current state...": the same bytes as a slot, the file written in the background.
+    void saveStateToFileAsync(const juce::File& f, std::function<void(bool)> done);
 
 private:
     void apply(const Command& c) noexcept;
     void ensureTracks();
-    void renderInternal(float* outL, float* outR, int m) noexcept;  // m <= kChunk, at 48 kHz
+    void renderInternal(float* outL, float* outR, int m) noexcept;  // any m, at 48 kHz, in 32-sample blocks
     void handleMidiIn(const juce::MidiMessage& m, int samplePos) noexcept;
     void post(uint8_t kind, int a, int b) noexcept;
     void timerCallback() override;
@@ -235,7 +230,26 @@ private:
     double sampleRate_ = 48000.0;
     juce::AbstractFifo fifo_{256};
     Command cmds_[256];
-    PlaceholderVoice voice_;
+    eng::Instrument inst_;
+    eng::PatchPlan plan_;
+    float jackLvl_[eng::kJacks] = {};
+    uint32_t patchSeq_ = 0xffffffffu;
+    void tapeBlock(const float* srcL, const float* srcR, const float* speedCv, bool reversePatched, bool reverse,
+                   const float* biasCv, float* outL, float* outR, float* head1, float* head2, int n) noexcept override;
+    void renderBlock32(float* outL, float* outR) noexcept;
+    float blkL_[eng::kBlock] = {}, blkR_[eng::kBlock] = {};
+    int blkPos_ = eng::kBlock;   // read position in the last rendered 32-sample block
+    KnobSmoother fxSm_[4];
+    float speedCvMul_[eng::kBlock] = {};
+    float gateEnv_ = 0.f;        // IN THRESH gate
+    int gateHold_ = 0;
+    float biasKnob_ = 0.45f, driveKnob_ = 1.8f, threshKnob_ = 0.55f;
+    eng::DrumKnobs drumKnobs_[eng::kDrumVoices];
+    static int gmDrumVoice(int note) noexcept;  // MIDI channel 10 note -> drum voice
+    bool gateOpen_ = false;
+    bool userRev_ = false;       // REV as the panel set it (the REVERSE jack overrides while patched)
+    bool cvRev_ = false;
+    float head2Hist_[2] = {};
     juce::AbstractFifo scopeFifo_{kScopeSize};
     float scope_[kScopeSize] = {};
     void pushScope(const float* x, int n) noexcept;
@@ -253,7 +267,7 @@ private:
     float lastDrive_ = -1.f;
     // knob smoothing and what it drives (audio thread)
     void stepKnobs(int n) noexcept;
-    void renderSub(float* outL, float* outR, int off, int m) noexcept;
+
     KnobSmoother sm_[20];
     float appliedMix_[4] = {-1.f, -1.f, -1.f, -1.f};
     int appliedArm_ = -1;

@@ -124,7 +124,7 @@ void LiftPanel::advance(double dtD) {
 
     // knob-driven springs
     for (size_t i = 0; i < 4; ++i) {
-        const float target = enc_[static_cast<size_t>(mode_)][i];
+        const float target = encAt(static_cast<int>(i));
         an_.foot[i].step(target, dt, snap);
         busy = busy || an_.foot[i].moving(target);
         const float fv = arm_ == static_cast<int>(i) ? enc_[Mix][0] : screen::kMixLevels[i];
@@ -192,13 +192,19 @@ void LiftPanel::advance(double dtD) {
     }
     busy = busy || view == Synth;  // live scope / idle breathing
 
-    // DRUM: the playhead runs on the real tape clock at the placeholder tempo
-    const double stepsPerSec = proc_.tempoBpm.load() / 60.0 * 4.0;
-    an_.drumPhase = std::fmod(pos / kSampleRate * stepsPerSec, 16.0);
+    // DRUM: the playhead is the sequencer's own step (the engine runs it)
     const bool playing = proc_.uiPlaying.load();
-    const int step = static_cast<int>(an_.drumPhase) % 16;
+    const int seqStep = proc_.uiDrumStep.load();
+    {
+        const double stepsPerSec = proc_.tempoBpm.load() / 60.0 * 4.0;
+        const double frac = std::fmod(pos / kSampleRate * stepsPerSec, 1.0);
+        an_.drumPhase = seqStep >= 0 ? std::fmod(static_cast<double>(seqStep % 16) + frac, 16.0) : 0.0;
+    }
+    const int step = seqStep >= 0 ? seqStep % 16 : -1;
     if (step != an_.lastStep) {
-        if (playing && screen::kDrumPat[step]) {
+        const uint32_t pat = drumPat_[static_cast<size_t>(juce::jlimit(0, eng::kKits - 1, sel_[Drum]))]
+                                     [static_cast<size_t>(drumVoice_)];
+        if (playing && step >= 0 && ((pat >> step) & 1u)) {
             an_.hitT[static_cast<size_t>(step)] = t_;
         }
         an_.lastStep = step;
@@ -714,8 +720,8 @@ void LiftPanel::paintViewSynth(Graphics& g) {
     for (int i = 0; i < 6; ++i) {
         const float pop = reducedMotion_ ? 0.f : juce::jmax(0.f, kick(t_ - an_.noteT - i * 0.035, 22.f, 8.f));
         const float h = 12.f * (1.f + 0.8f * pop), w = 22.f * (1.f - 0.15f * pop);
-        const bool lit = i < (note_ >= 0 ? 3 : 2);
-        g.setColour(lit ? hex(0xf4be2a) : hex(0x262626));
+        const float lv = juce::jlimit(0.f, 1.f, proc_.uiVoiceEnv[i].load() * 1.6f);
+        g.setColour(hex(0x262626).interpolatedWith(hex(0xf4be2a), lv > 0.02f ? 0.35f + 0.65f * lv : 0.f));
         g.fillRect(546.f + static_cast<float>(i) * 25.f + (22.f - w) * 0.5f, 32.f - h * 0.5f, w, h);
     }
 }
@@ -724,8 +730,11 @@ void LiftPanel::paintViewSynth(Graphics& g) {
 
 void LiftPanel::paintViewDrum(Graphics& g) {
     g.addTransform(AffineTransform::translation(0.f, 40.f));
-    svgText(g, "KIT " + juce::String(sel_[Drum] + 1) + juce::String::fromUTF8(" \xc2\xb7 ") + (sel_[Drum] == 0 ? "TAP" : "EMPTY"),
+    const int kit = juce::jlimit(0, eng::kKits - 1, sel_[Drum]);
+    svgText(g, "KIT " + juce::String(kit + 1) + juce::String::fromUTF8(" \xc2\xb7 ") + eng::kitInfo(kit).name +
+                   juce::String::fromUTF8(" \xc2\xb7 ") + eng::kDrumVoiceNames[drumVoice_],
             24.f, 30.f, 18.f, hex(0xede6d6), -1, true);
+    const auto& kitPat = drumPat_[static_cast<size_t>(kit)];
     const bool playing = proc_.uiPlaying.load() && !reducedMotion_;
     const float phx = 24.f + static_cast<float>(an_.drumPhase / 16.0) * 672.f;
     // PLACEHOLDER MOTION: the sample and pattern are the prototype's demo
@@ -757,7 +766,7 @@ void LiftPanel::paintViewDrum(Graphics& g) {
         const float b = playing ? juce::jmax(0.f, kick(t_ - an_.hitT[static_cast<size_t>(i)], 26.f, 9.f)) : 0.f;
         const Rectangle<float> cell = Rectangle<float>(x, 142.f, 36.f, 36.f).withSizeKeepingCentre(36.f * (1.f + 0.22f * b),
                                                                                               36.f * (1.f - 0.12f * b));
-        const bool on = screen::kDrumPat[i] != 0;
+        const bool on = ((kitPat[static_cast<size_t>(drumVoice_)] >> i) & 1u) != 0;
         g.setColour(on ? rgba(232, 71, 58, 0.3f + 0.6f * b) : hex(0x141414));
         g.fillRect(cell);
         g.setColour(on ? hex(0xe8473a) : (i % 4 == 0 ? hex(0x444444) : hex(0x262626)));
@@ -767,7 +776,12 @@ void LiftPanel::paintViewDrum(Graphics& g) {
             g.drawRect(cell.expanded(3.f), 2.f);
         }
         if (on) {
-            const float v = screen::kDrumVel[i] * (1.f + (playing ? 0.9f * decayFrom(t_ - an_.hitT[static_cast<size_t>(i)], 8.f) : 0.f));
+            int busy = 0;  // how much of the kit lands on this step
+            for (uint32_t m : kitPat) {
+                busy += static_cast<int>((m >> i) & 1u);
+            }
+            const float vel = juce::jmin(1.f, 0.35f + 0.16f * static_cast<float>(busy));
+            const float v = vel * (1.f + (playing ? 0.9f * decayFrom(t_ - an_.hitT[static_cast<size_t>(i)], 8.f) : 0.f));
             g.setColour(hex(0xe8473a));
             g.fillRect(x, 184.f, 36.f, static_cast<float>(juce::jmax(2, juce::roundToInt(v * 12.f))));
         }
@@ -933,27 +947,29 @@ void LiftPanel::paintViewBay(Graphics& g) {
         svgText(g, juce::String::fromUTF8(OUTS[c.o].n), 52.f, y + 12.f, 14.f, hex(0xede6d6));
         svgText(g, juce::String::fromUTF8("\xe2\x86\x92"), 290.f, y + 12.f, 14.f, hex(0x5e5a50));
         svgText(g, juce::String::fromUTF8(INS[c.i].n), 330.f, y + 12.f, 14.f, hex(0xede6d6));
-        // signal dots travel from the OUT to the IN, in the cord's colour.
-        // PLACEHOLDER MOTION: cords are not routed yet, so the dots run at a
-        // fixed rate scaled by the cord amount rather than the real signal.
-        if (!reducedMotion_) {
+        // signal dots travel from the OUT to the IN, in the cord's colour; they
+        // run faster and brighter with the real signal level on the OUT jack
+        const float lvl = juce::jlimit(0.f, 1.f, proc_.uiJackLevel[juce::jlimit(0, 15, static_cast<int>(c.o))].load());
+        if (!reducedMotion_ && lvl > 0.002f) {
             const Colour dc = c.c == 0 ? hex(0xede6d6) : hex(CLOTH[c.c].lt);
-            const float rate = 0.5f + 0.4f * static_cast<float>(k % 3);
+            const float rate = 0.35f + 1.2f * std::sqrt(lvl);
             for (int j = 0; j < 2; ++j) {
                 float ph = tt * rate + static_cast<float>(k) * 0.17f + static_cast<float>(j) * 0.5f;
                 ph -= std::floor(ph);
                 const float dx = 240.f + 80.f * ph;
                 const float a = std::sin(kPi * ph);
-                fill(g, circle(dx, y + 7.f, 2.5f), dc.withAlpha(0.9f * a));
+                fill(g, circle(dx, y + 7.f, 2.5f), dc.withAlpha((0.35f + 0.55f * std::sqrt(lvl)) * a));
             }
         }
-        if (isFb(c.o, c.i)) {
+        if (eng::cableIsFeedback(proc_.patch.plan(), c.o, c.i)) {
             // feedback tag pulses like a heartbeat
             const float pulse = reducedMotion_ ? 1.f : 0.6f + 0.4f * (0.5f + 0.5f * std::sin(tt * 6.f));
             svgText(g, juce::String::fromUTF8("FEEDBACK z\xe2\x81\xbb\xc2\xb9"), 600.f, y + 12.f, 11.f,
                     hex(0xf4be2a, pulse), 1);
         }
-        svgText(g, juce::String::fromUTF8(AMTS[k % 8]), 696.f, y + 12.f, 14.f, hex(0x8c877b), 1);
+        // the patch model has no per-cord attenuator: every cord is unity
+        const float amt = k < proc_.patch.plan().count ? proc_.patch.plan().amount[k] : 1.f;
+        svgText(g, juce::String(juce::roundToInt(amt * 100.f)) + "%", 696.f, y + 12.f, 14.f, hex(0x8c877b), 1);
     }
     if (cords_.empty()) {
         svgText(g, juce::String::fromUTF8("NO CORDS \xc2\xb7 DRAG FROM AN OUT TO AN IN"), 24.f, 70.f, 14.f, hex(0x8c877b));
@@ -982,7 +998,7 @@ void LiftPanel::paintFoot(Graphics& g) {
         g.fillRect(x, 383.5f, cw, 6.f);
         // bars spring to the knob (and to the new screen's knobs on a mode change)
         const Spring& s = an_.foot[ii];
-        const float target = enc_[static_cast<size_t>(mode_)][ii];
+        const float target = encAt(static_cast<int>(ii));
         const bool rest = !s.init || (s.v == 0.f && s.x == target);
         const float w = rest ? cw * static_cast<float>(juce::roundToInt(target * 100.f)) / 100.f
                              : cw * juce::jlimit(0.f, 1.04f, s.x);

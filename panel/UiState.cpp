@@ -46,6 +46,20 @@ UiState::UiState() {
     }
     cords = {{0, 0, 0, false}, {1, 1, 1, false}, {8, 3, 2, false}, {15, 2, 3, false}, {9, 9, 0, false}, {5, 12, 1, false}};
     learn.fill(-1);
+    for (int k = 0; k < eng::kKits; ++k) {
+        for (int v = 0; v < eng::kDrumVoices; ++v) {
+            drumPat[static_cast<size_t>(k)][static_cast<size_t>(v)] = eng::kitInfo(k).pattern[v];
+        }
+    }
+    for (int v = 0; v < eng::kDrumVoices; ++v) {
+        const eng::DrumKnobs d = eng::kitDefaultKnobs(0, v);
+        drumKnobs[static_cast<size_t>(v)] = {d.pitch, d.choke, d.decay};
+    }
+    for (int t = 0; t < eng::kFxTypes; ++t) {
+        for (int k = 0; k < 4; ++k) {
+            fxKnobs[static_cast<size_t>(t)][static_cast<size_t>(k)] = eng::kFxDefaults[t][k];
+        }
+    }
 }
 
 juce::ValueTree UiState::toTree() const {
@@ -99,6 +113,29 @@ juce::ValueTree UiState::toTree() const {
         }
     }
     t.setProperty("learn", l.joinIntoString(" "), nullptr);
+    juce::StringArray pat;
+    for (const auto& kit : drumPat) {
+        for (uint32_t m : kit) {
+            pat.add(juce::String::toHexString(static_cast<juce::int64>(m)));
+        }
+    }
+    t.setProperty("drumPat", pat.joinIntoString(" "), nullptr);
+    t.setProperty("drumVoice", drumVoice, nullptr);
+    juce::StringArray dk;
+    for (const auto& v : drumKnobs) {
+        for (float x : v) {
+            dk.add(juce::String(static_cast<double>(x), 6));
+        }
+    }
+    t.setProperty("drumKnobs", dk.joinIntoString(" "), nullptr);
+    t.setProperty("fxType", fxType, nullptr);
+    juce::StringArray fk;
+    for (const auto& v : fxKnobs) {
+        for (float x : v) {
+            fk.add(juce::String(static_cast<double>(x), 6));
+        }
+    }
+    t.setProperty("fxKnobs", fk.joinIntoString(" "), nullptr);
     return t;
 }
 
@@ -166,6 +203,29 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
         const int tg = pair.fromFirstOccurrenceOf(":", false, false).getIntValue();
         if (cc >= 0 && cc < 128 && tg >= 0 && tg < kKnobTargets) {
             s.learn[static_cast<size_t>(cc)] = tg;
+        }
+    }
+    const auto pat = split(t["drumPat"]);
+    if (pat.size() == eng::kKits * eng::kDrumVoices) {
+        for (int k = 0; k < pat.size(); ++k) {
+            s.drumPat[static_cast<size_t>(k / eng::kDrumVoices)][static_cast<size_t>(k % eng::kDrumVoices)] =
+                static_cast<uint32_t>(pat[k].getHexValue64() & 0xffffffff);
+        }
+    }
+    s.drumVoice = clampInt(t["drumVoice"], 0, eng::kDrumVoices - 1, s.drumVoice);
+    const auto dk = split(t["drumKnobs"]);
+    if (dk.size() == eng::kDrumVoices * 3) {
+        for (int k = 0; k < dk.size(); ++k) {
+            s.drumKnobs[static_cast<size_t>(k / 3)][static_cast<size_t>(k % 3)] =
+                juce::jlimit(0.f, 1.f, static_cast<float>(dk[k].getDoubleValue()));
+        }
+    }
+    s.fxType = clampInt(t["fxType"], 0, eng::kFxTypes - 1, s.fxType);
+    const auto fk = split(t["fxKnobs"]);
+    if (fk.size() == eng::kFxTypes * 4) {
+        for (int k = 0; k < fk.size(); ++k) {
+            s.fxKnobs[static_cast<size_t>(k / 4)][static_cast<size_t>(k % 4)] =
+                juce::jlimit(0.f, 1.f, static_cast<float>(fk[k].getDoubleValue()));
         }
     }
     return s;

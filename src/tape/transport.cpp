@@ -66,6 +66,10 @@ void transport_init(TapeRuntime& rt) noexcept {
     rt.frames = 0;
     rt.pos = 0.0;
     rt.varispeed = 1.f;
+    rt.speedMul = nullptr;
+    rt.head1Out = nullptr;
+    rt.head2Out = nullptr;
+    rt.head2Gap = 12000;
     rt.playing = false;
     rt.recording = false;
     rt.reverse = false;

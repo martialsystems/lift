@@ -99,13 +99,52 @@ void LiftPanel::publishPatch() {
 juce::StringArray LiftPanel::labels() const {
     juce::StringArray a;
     for (int i = 0; i < 4; ++i) {
-        a.add(juce::String::fromUTF8(mode_ == Synth ? ENGINES[sel_[Synth]].m[i] : MODE_MACROS[mode_][i]));
+        a.add(juce::String::fromUTF8(fxEdit_ ? eng::kFxKnobNames[fxType_][i]
+                                     : mode_ == Synth ? ENGINES[sel_[Synth]].m[i] : MODE_MACROS[mode_][i]));
     }
     return a;
 }
 
+float LiftPanel::encAt(int i) const {
+    if (fxEdit_) {
+        return fxKnobs_[static_cast<size_t>(fxType_)][static_cast<size_t>(i)];
+    }
+    return enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
+}
+
+void LiftPanel::selectDrumVoice(int v, bool announce) {
+    v = juce::jlimit(0, eng::kDrumVoices - 1, v);
+    const bool changed = v != drumVoice_;
+    drumVoice_ = v;
+    proc_.drumVoice.store(v);
+    // the DRUM knobs show the selected voice: SLICE points at it, the rest are its own
+    auto& e = enc_[static_cast<size_t>(Drum)];
+    e[0] = (static_cast<float>(v) + 0.5f) / static_cast<float>(eng::kDrumVoices);
+    for (int k = 0; k < 3; ++k) {
+        e[static_cast<size_t>(k + 1)] = drumKnobs_[static_cast<size_t>(v)][static_cast<size_t>(k)];
+    }
+    if (announce && changed) {
+        flash(juce::String("VOICE ") + eng::kDrumVoiceNames[v]);
+    }
+}
+
+void LiftPanel::toggleStep(int step) {
+    const int kit = juce::jlimit(0, eng::kKits - 1, sel_[Drum]);
+    auto& m = drumPat_[static_cast<size_t>(kit)][static_cast<size_t>(drumVoice_)];
+    m ^= 1u << step;
+    proc_.drumPattern[kit * eng::kDrumVoices + drumVoice_].store(m);
+    say(juce::String(eng::kDrumVoiceNames[drumVoice_]) + " step " + juce::String(step + 1) +
+        (((m >> step) & 1u) ? " on." : " off."));
+}
+
 juce::String LiftPanel::encDisplay(int i) const {
-    const float v = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
+    const float v = encAt(i);
+    if (fxEdit_) {
+        return juce::String(juce::roundToInt(v * 100.f)) + "%";
+    }
+    if (mode_ == Drum && i == 0) {
+        return eng::kDrumVoiceNames[drumVoice_];
+    }
     if (mode_ == Tape && i == 0) {
         return juce::String(speedOf(), 2) + juce::String::fromUTF8("\xc3\x97");
     }
@@ -283,12 +322,38 @@ void LiftPanel::act(const juce::String& a) {
     const juce::String arg = a.fromFirstOccurrenceOf(":", false, false);
     const int n = arg.getIntValue();
     if (k == "mode") {
+        fxEdit_ = false;
         mode_ = static_cast<Mode>(modeFromId(arg));
         bay_ = false;
         say(arg.toUpperCase() + " screen.");
     } else if (k == "fx") {
-        fx_ = !fx_;
-        say(fx_ ? "Effect insert on." : "Effect insert bypassed.");
+        if (fxEdit_) {
+            fxEdit_ = false;
+            flash(juce::String(eng::kFxNames[fxType_]) + " EDIT DONE");
+        } else {
+            fx_ = !fx_;
+            proc_.fxOn.store(fx_);
+            flash(juce::String(eng::kFxNames[fxType_]) + (fx_ ? " ON" : " BYPASSED"));
+            say(fx_ ? "Effect insert on." : "Effect insert bypassed.");
+        }
+    } else if (k == "fxedit") {
+        fxEdit_ = true;
+        if (!fx_) {
+            fx_ = true;
+            proc_.fxOn.store(true);
+        }
+        flash(juce::String(eng::kFxNames[fxType_]) + juce::String::fromUTF8(" \xc2\xb7 KNOBS: ") +
+              eng::kFxKnobNames[fxType_][0] + " " + eng::kFxKnobNames[fxType_][1] + " " + eng::kFxKnobNames[fxType_][2] +
+              " " + eng::kFxKnobNames[fxType_][3]);
+        say("Effect edit: the four knobs set the effect. Tap FX to finish.");
+    } else if (k == "fxtype") {
+        fxType_ = (fxType_ + 1) % eng::kFxTypes;
+        proc_.send(Cmd::FxType, fxType_);
+        for (int i = 0; i < 4; ++i) {
+            proc_.fxKnobs[i].store(fxKnobs_[static_cast<size_t>(fxType_)][static_cast<size_t>(i)]);
+        }
+        flash(juce::String("FX ") + eng::kFxNames[fxType_]);
+        say(juce::String("Effect: ") + eng::kFxNames[fxType_] + ".");
     } else if (k == "bay") {
         bay_ = !bay_;
         say(bay_ ? "Patch list on the screen." : "Patch list closed. Cables keep working.");
@@ -305,6 +370,11 @@ void LiftPanel::act(const juce::String& a) {
             return;
         }
         sel_[static_cast<size_t>(mode_)] = n;
+        if (mode_ == Synth) {
+            proc_.synthEngine.store(n);
+        } else if (mode_ == Drum) {
+            proc_.drumKit.store(n);
+        }
     } else if (k == "arm") {
         arm_ = n;
         proc_.send(Cmd::Arm, n);
@@ -358,6 +428,28 @@ void LiftPanel::act(const juce::String& a) {
 }
 
 void LiftPanel::noteOn(int n) {
+    if (mode_ == Drum) {
+        // DRUM: the keys play the kit's voices and pick the one the knobs drive;
+        // with REC on and the tape running, the hit is written into the current step
+        const int v = eng::drumVoiceForKey(((n % 24) + 24) % 24);
+        if (v >= 0) {
+            selectDrumVoice(v, true);
+            proc_.send(Cmd::DrumHit, v, 100);
+            if (rec_ && playing_) {
+                const int step = proc_.uiDrumStep.load();
+                const int kit = juce::jlimit(0, eng::kKits - 1, sel_[Drum]);
+                if (step >= 0 && step < drumLen_) {
+                    auto& m = drumPat_[static_cast<size_t>(kit)][static_cast<size_t>(v)];
+                    m |= 1u << step;
+                    proc_.drumPattern[kit * eng::kDrumVoices + v].store(m);
+                }
+            }
+        }
+        heldNote_ = n;
+        note_ = n;
+        repaint();
+        return;
+    }
     if (heldMidi_ >= 0) {
         proc_.send(Cmd::NoteOff, heldMidi_);
     }
@@ -383,8 +475,26 @@ void LiftPanel::noteOff(int n) {
 }
 
 void LiftPanel::setEnc(int i, float v) {
+    if (fxEdit_) {
+        auto& f = fxKnobs_[static_cast<size_t>(fxType_)][static_cast<size_t>(i)];
+        f = juce::jlimit(0.f, 1.f, v);
+        proc_.fxKnobs[i].store(f);
+        flash(juce::String(eng::kFxNames[fxType_]) + juce::String::fromUTF8(" \xc2\xb7 ") + eng::kFxKnobNames[fxType_][i] +
+              " " + juce::String(juce::roundToInt(f * 100.f)) + "%");
+        repaint();
+        return;
+    }
     auto& e = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(i)];
     e = juce::jlimit(0.f, 1.f, v);
+    if (mode_ == Drum) {
+        if (i == 0) {
+            selectDrumVoice(juce::jmin(eng::kDrumVoices - 1, static_cast<int>(e * eng::kDrumVoices)), true);
+            e = juce::jlimit(0.f, 1.f, v);  // the knob itself stays where it was turned
+        } else {
+            drumKnobs_[static_cast<size_t>(drumVoice_)][static_cast<size_t>(i - 1)] = e;
+            proc_.send(Cmd::DrumKnob, drumVoice_, i - 1, e);
+        }
+    }
     if (learnArm_) {
         const int target = static_cast<int>(mode_) * 4 + i;
         if (proc_.learnTarget.exchange(target) != target) {
@@ -617,6 +727,20 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
         menu_.open = false;
         repaint();
     }
+    if (mode_ == Drum && !bay_ && picker_ == Picker::None && shiftAmt_ <= 0.f) {
+        // DRUM screen: click a step cell to toggle it for the selected voice
+        const float sc = 600.f / 720.f;
+        const float vx = (d.x - 60.f) / sc;
+        const float vy = (d.y - 256.f - (32.f + (324.f - 319.f * sc) * 0.5f)) / sc - 40.f;
+        if (vy >= 140.f && vy <= 200.f && vx >= 24.f) {
+            const int i = static_cast<int>((vx - 24.f) / 42.4f);
+            if (i >= 0 && i < 16 && vx - 24.f - static_cast<float>(i) * 42.4f <= 38.f) {
+                toggleStep(i);
+                repaint(screenArea());
+                return;
+            }
+        }
+    }
     const JackId j = jackAt(d);
     if (j.valid()) {
         const auto here = cordsAt(j.r, j.i);
@@ -650,7 +774,7 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
     const int k = knobAt(d);
     if (k >= 0) {
         focusKnob_ = k;
-        kd_ = {true, k, c.y, enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)]};
+        kd_ = {true, k, c.y, encAt(k)};
         pickDragY_ = c.y;
         return;
     }
@@ -665,6 +789,9 @@ void LiftPanel::mouseDown(const juce::MouseEvent& e) {
         return;
     }
     pressedPad_ = padAt(d);
+    if (pressedPad_ == 5) {
+        fxDownT_ = t_;
+    }
     pressedMem_ = memAt(d);
     if (pressedMem_ == kShiftSlot) {
         // press and hold = momentary shift; a quick tap latches (on release)
@@ -810,7 +937,17 @@ void LiftPanel::mouseUp(const juce::MouseEvent& e) {
         repaint();
         return;
     }
-    if (pp >= 0 && pad == pp) {
+    if (pp == 5 && pad == pp) {
+        // FX: tap = on / bypass, SHIFT + tap = next effect, hold = the knobs edit the effect
+        if (shiftActive()) {
+            act("fxtype");
+        } else if (fxDownT_ >= 0.0 && t_ - fxDownT_ >= 0.5) {
+            act("fxedit");
+        } else {
+            act("fx");
+        }
+        fxDownT_ = -1.0;
+    } else if (pp >= 0 && pad == pp) {
         padAct(pad);
     } else if (pm >= 0 && mem == pm) {
         memAct(mem);
@@ -851,7 +988,7 @@ void LiftPanel::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheel
         return;
     }
     const bool fine = e.mods.isShiftDown() || shiftActive();
-    const float now = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(k)];
+    const float now = encAt(k);
     if (w.isSmooth) {
         // trackpad / smooth wheel: proportional to the scroll distance, so the
         // knob follows the fingers continuously (a full turn over ~1.6 pages)
@@ -924,7 +1061,7 @@ bool LiftPanel::keyPressed(const juce::KeyPress& key) {
     }
     if (focusKnob_ >= 0) {
         const float step = (mods.isShiftDown() || shiftActive()) ? 0.01f : 0.05f;
-        const float v = enc_[static_cast<size_t>(mode_)][static_cast<size_t>(focusKnob_)];
+        const float v = encAt(focusKnob_);
         const int kc = key.getKeyCode();
         if (kc == juce::KeyPress::upKey || kc == juce::KeyPress::rightKey) {
             setEnc(focusKnob_, v + step);

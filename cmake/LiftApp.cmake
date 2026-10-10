@@ -15,6 +15,16 @@ set(LIFT_TAPE_SOURCES
     ${LIFT_ROOT}/src/audio/prepare.cpp
     ${LIFT_ROOT}/src/audio/process_block.cpp
 )
+# Instrument DSP (no JUCE): patch router, synth, drums, FX, plus vendored SHOGUN
+set(LIFT_ENGINE_SOURCES
+    ${LIFT_ROOT}/src/engine/patch.cpp
+    ${LIFT_ROOT}/src/engine/synth.cpp
+    ${LIFT_ROOT}/src/engine/drums.cpp
+    ${LIFT_ROOT}/src/engine/fx.cpp
+    ${LIFT_ROOT}/src/engine/instrument.cpp
+    ${LIFT_ROOT}/third_party/jidai/shogun/shogun.cpp
+)
+set(LIFT_ENGINE_INCLUDES ${LIFT_ROOT}/third_party/jidai/shogun ${LIFT_ROOT}/third_party/jidai/jidai-common/include)
 set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/Fonts.cpp
     ${LIFT_ROOT}/panel/LiftPanel.cpp
@@ -67,8 +77,8 @@ juce_add_plugin(LiftApp
     COPY_PLUGIN_AFTER_BUILD FALSE
     FORMATS ${LIFT_APP_FORMATS}
 )
-target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES} ${LIFT_ROOT}/panel/StandaloneApp.cpp)
-target_include_directories(LiftApp PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel)
+target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES} ${LIFT_ROOT}/panel/StandaloneApp.cpp)
+target_include_directories(LiftApp PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ENGINE_INCLUDES})
 target_compile_definitions(LiftApp PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
@@ -78,8 +88,8 @@ target_link_libraries(LiftApp PRIVATE lift_fonts lift_art juce::juce_audio_utils
 # Headless check: renders the panel screens to PNG and drives the panel
 # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
 juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
-target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_ROOT}/tests/ui_bench.cpp ${LIFT_ROOT}/tests/knob_check.cpp ${LIFT_TAPE_SOURCES} ${LIFT_PANEL_SOURCES})
-target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel)
+target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_ROOT}/tests/ui_bench.cpp ${LIFT_ROOT}/tests/knob_check.cpp ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ENGINE_INCLUDES})
 target_compile_definitions(lift_panel_check PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(lift_panel_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
