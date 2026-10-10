@@ -2,17 +2,28 @@
 
 #include "engine/fx.h"
 
+#include <jidai/dsp/Halfband.h>  // vendored jidai-common: exact halfband 2x up / down
+
 #include <cmath>
 #include <cstring>
 #include <vector>
 
 namespace lift::eng {
 
-// product names (lift_laws approved effects): DRIP = the spring reverb, SPACE = the plate, ECHO = tape echo
-const char* const kFxNames[kFxTypes] = {"DRIP", "SPACE", "ECHO"};
+const char* const kFxNames[kFxTypes] = {"SPRING", "REVERB", "DELAY", "CHORUS", "PHASER",
+                                        "FILTER", "DRIVE",  "LOFI",  "COMP"};
 const char* const kFxKnobNames[kFxTypes][4] = {
-    {"TONE", "DECAY", "TENSION", "MIX"}, {"SIZE", "DECAY", "TONE", "MIX"}, {"TIME", "FEEDBACK", "TONE", "MIX"}};
-const float kFxDefaults[kFxTypes][4] = {{0.55f, 0.5f, 0.5f, 0.4f}, {0.6f, 0.55f, 0.5f, 0.3f}, {0.45f, 0.45f, 0.5f, 0.3f}};
+    {"TONE", "DECAY", "TENSION", "MIX"},  {"SIZE", "DECAY", "TONE", "MIX"},     {"TIME", "FEEDBACK", "TONE", "MIX"},
+    {"RATE", "DEPTH", "FLANGE", "MIX"},   {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"CUTOFF", "RESO", "MODE", "MIX"},
+    {"DRIVE", "TONE", "BIAS", "MIX"},     {"BITS", "RATE", "TONE", "MIX"},      {"AMOUNT", "ATTACK", "RELEASE", "MIX"}};
+const float kFxDefaults[kFxTypes][4] = {
+    {0.55f, 0.5f, 0.5f, 0.4f}, {0.6f, 0.55f, 0.5f, 0.3f},  {0.45f, 0.45f, 0.5f, 0.3f},
+    {0.3f, 0.45f, 0.f, 0.5f},  {0.25f, 0.6f, 0.45f, 0.5f}, {0.55f, 0.35f, 0.f, 1.f},
+    {0.45f, 0.5f, 0.3f, 1.f},  {0.5f, 0.5f, 0.6f, 1.f},    {0.5f, 0.3f, 0.4f, 1.f}};
+
+// Reverbs and the delay add a wet signal to the dry; the rest replace it (MIX
+// crossfades dry to processed, so 100 % is the full effect).
+static bool isSend(int t) noexcept { return t == FX_SPRING || t == FX_REVERB || t == FX_DELAY; }
 
 namespace {
 
@@ -44,6 +55,16 @@ struct Delay {
         const float f = d - static_cast<float>(i);
         const float a = at(i), c = at(i + 1);
         return a + f * (c - a);
+    }
+    // 4-point, 3rd-order Hermite read (modulated delays: chorus, flanger)
+    float herm(float d) const noexcept {
+        const int i = static_cast<int>(d);
+        const float f = d - static_cast<float>(i);
+        const float xm1 = at(i - 1), x0 = at(i), x1 = at(i + 1), x2 = at(i + 2);
+        const float c1 = 0.5f * (x1 - xm1);
+        const float c2 = xm1 - 2.5f * x0 + 2.f * x1 - 0.5f * x2;
+        const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        return ((c3 * f + c2) * f + c1) * f + x0;
     }
 };
 
@@ -242,7 +263,7 @@ struct FxRack::Plate {
     void prepare(double f) {
         fs = f;
         k = fs / 29761.0;
-        pre.alloc(static_cast<int>(0.05 * fs));
+        pre.alloc(static_cast<int>(0.09 * fs));
         const int ins[4] = {142, 107, 379, 277};
         for (int i = 0; i < 4; ++i) in[i].d.alloc(static_cast<int>(ins[i] * k) + 8);
         apL1.d.alloc(static_cast<int>((672 + 32) * k) + 8);
@@ -263,7 +284,7 @@ struct FxRack::Plate {
         bw = dampL = dampR = fbL = fbR = 0.f;
     }
     void setParams(const float* p) {
-        size = 0.45f + 0.55f * p[0];
+        size = 0.45f + 0.55f * p[0];  // the tank's delays: plate .. hall
         decay = 0.2f + 0.77f * p[1];
         damping = 0.65f - 0.6f * p[2];
         bwA = 0.35f + 0.6f * p[2];
@@ -275,7 +296,7 @@ struct FxRack::Plate {
     void process(const float* inL, const float* inR, float* wl, float* wr, int n) {
         const float dd1 = 0.7f, dd2 = 0.5f;
         const float lfoInc = static_cast<float>(2.0 * kPi * 1.0 / fs);
-        const int pd = static_cast<int>(0.012 * fs);
+        const int pd = static_cast<int>((0.004 + 0.07 * (size - 0.45f) / 0.55f) * fs);  // plate 4 ms .. hall 74 ms
         for (int i = 0; i < n; ++i) {
             float x = 0.5f * (inL[i] + inR[i]);
             pre.push(x);
@@ -368,10 +389,326 @@ struct FxRack::Echo {
     }
 };
 
+
+// ---------------------------------------------------------------- CHORUS / FLANGER
+
+struct FxRack::Chorus {
+    Delay dl, dr;
+    double fs = 48000.0;
+    float rate = 0.5f, depth = 0.5f, flange = 0.f;
+    double ph = 0.0;
+    float fbL = 0.f, fbR = 0.f;
+    void prepare(double f) {
+        fs = f;
+        dl.alloc(static_cast<int>(0.05 * fs));
+        dr.alloc(static_cast<int>(0.05 * fs));
+        reset();
+    }
+    void reset() {
+        dl.clear();
+        dr.clear();
+        fbL = fbR = 0.f;
+    }
+    void setParams(const float* p) {
+        rate = static_cast<float>(0.05 * std::pow(100.0, p[0]));  // 0.05 .. 5 Hz
+        depth = p[1];
+        flange = p[2];
+    }
+    void process(const float* inL, const float* inR, float* wl, float* wr, int n) {
+        const double inc = rate / fs;
+        const float msF = static_cast<float>(fs / 1000.0);
+        // chorus: 3 taps around 14 ms, up to +-5 ms; flanger: one tap 0.4 .. 4.4 ms, feedback
+        const float cBase = 14.f * msF, cDep = 5.f * depth * msF;
+        const float fBase = 0.4f * msF, fDep = 4.f * depth * msF;
+        const float fb = 0.82f * flange * flange;
+        const float tw = static_cast<float>(2.0 * kPi);
+        for (int i = 0; i < n; ++i) {
+            ph += inc;
+            if (ph >= 1.0) ph -= 1.0;
+            const float p0 = static_cast<float>(ph);
+            dl.push(flush(inL[i] + fb * fbL));
+            dr.push(flush(inR[i] + fb * fbR));
+            float cl = 0.f, cr = 0.f;
+            for (int k = 0; k < 3; ++k) {
+                const float o = p0 + static_cast<float>(k) / 3.f;
+                cl += dl.herm(cBase + cDep * std::sin(tw * o));
+                cr += dr.herm(cBase + cDep * std::sin(tw * (o + 0.25f)));
+            }
+            cl *= 0.45f;
+            cr *= 0.45f;
+            const float sl = 0.5f + 0.5f * std::sin(tw * p0), sr = 0.5f + 0.5f * std::sin(tw * (p0 + 0.25f));
+            const float flL = dl.herm(fBase + fDep * sl), flR = dr.herm(fBase + fDep * sr);
+            fbL = flL;
+            fbR = flR;
+            wl[i] = (1.f - flange) * cl + flange * flL;
+            wr[i] = (1.f - flange) * cr + flange * flR;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- PHASER
+
+struct FxRack::Phaser {
+    static constexpr int kStages = 8;
+    double fs = 48000.0;
+    float rate = 0.3f, depth = 0.6f, fb = 0.4f;
+    double ph = 0.0;
+    float zl[kStages] = {}, zr[kStages] = {};
+    float yl = 0.f, yr = 0.f, al = 0.f, ar = 0.f;
+    void prepare(double f) { fs = f; reset(); }
+    void reset() {
+        std::memset(zl, 0, sizeof zl);
+        std::memset(zr, 0, sizeof zr);
+        yl = yr = 0.f;
+    }
+    void setParams(const float* p) {
+        rate = static_cast<float>(0.03 * std::pow(200.0, p[0]));  // 0.03 .. 6 Hz
+        depth = p[1];
+        fb = 0.9f * p[2];
+    }
+    static float coef(double hz, double fs) noexcept {
+        const double t = std::tan(kPi * std::fmin(hz, 0.45 * fs) / fs);
+        return static_cast<float>((t - 1.0) / (t + 1.0));
+    }
+    static float run(float x, float a, float* z) noexcept {
+        for (int k = 0; k < kStages; ++k) {
+            // first-order allpass, transposed direct form II
+            const float y = a * x + z[k];
+            z[k] = flush(x - a * y);
+            x = y;
+        }
+        return x;
+    }
+    void process(const float* inL, const float* inR, float* wl, float* wr, int n) {
+        const double inc = rate / fs;
+        const double lo = 120.0, oct = 1.0 + 6.0 * depth;  // sweep 120 Hz up to 7 octaves
+        for (int i = 0; i < n; ++i) {
+            ph += inc;
+            if (ph >= 1.0) ph -= 1.0;
+            if ((i & 3) == 0) {
+                const double tl = 0.5 - 0.5 * std::cos(2.0 * kPi * ph);
+                const double tr = 0.5 - 0.5 * std::cos(2.0 * kPi * (ph + 0.25));
+                al = coef(lo * std::exp2(oct * tl), fs);
+                ar = coef(lo * std::exp2(oct * tr), fs);
+            }
+            yl = run(inL[i] + fb * yl, al, zl);
+            yr = run(inR[i] + fb * yr, ar, zr);
+            // the notches come from summing with the dry (MIX 50 % = the classic phaser)
+            wl[i] = yl;
+            wr[i] = yr;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- FILTER (TPT SVF)
+
+struct FxRack::Svf {
+    double fs = 48000.0;
+    float cut = 0.5f, q = 0.7f, mode = 0.f, macOct = 0.f;
+    float s1[2] = {}, s2[2] = {};
+    void prepare(double f) { fs = f; reset(); }
+    void reset() {
+        s1[0] = s1[1] = s2[0] = s2[1] = 0.f;
+    }
+    void setParams(const float* p) {
+        cut = p[0];
+        q = 0.55f + 19.f * p[1] * p[1];
+        mode = p[2];
+    }
+    void process(const float* inL, const float* inR, float* wl, float* wr, int n, const float* mac) {
+        const float* in[2] = {inL, inR};
+        float* out[2] = {wl, wr};
+        const float k = 1.f / q;
+        // LP -> BP -> HP morph weights
+        const float lpW = clampf(1.f - 2.f * mode, 0.f, 1.f);
+        const float hpW = clampf(2.f * mode - 1.f, 0.f, 1.f);
+        const float bpW = 1.f - lpW - hpW;
+        float g = 0.f, a1 = 0.f, a2 = 0.f, a3 = 0.f;
+        for (int i = 0; i < n; ++i) {
+            if ((i & 7) == 0) {
+                double hz = 20.0 * std::pow(900.0, static_cast<double>(cut));  // 20 Hz .. 18 kHz
+                if (mac != nullptr) hz *= std::exp2(clampf(mac[i], -8.f, 8.f));
+                hz = std::fmin(std::fmax(hz, 16.0), 0.46 * fs);
+                g = static_cast<float>(std::tan(kPi * hz / fs));
+                a1 = 1.f / (1.f + g * (g + k));
+                a2 = g * a1;
+                a3 = g * a2;
+            }
+            for (int c = 0; c < 2; ++c) {
+                const float x = 1.2f * std::tanh(0.8f * in[c][i]);  // a little drive into the filter
+                const float v3 = x - s2[c];
+                const float v1 = a1 * s1[c] + a2 * v3;
+                const float v2 = s2[c] + a2 * s1[c] + a3 * v3;
+                s1[c] = flush(2.f * v1 - s1[c]);
+                s2[c] = flush(2.f * v2 - s2[c]);
+                const float lp = v2, bp = v1, hp = x - k * v1 - v2;
+                out[c][i] = lpW * lp + bpW * bp * (0.5f + 0.5f * k) * 1.6f + hpW * hp;
+            }
+        }
+    }
+};
+
+// ---------------------------------------------------------------- DRIVE (ADAA tanh)
+
+struct FxRack::Drive {
+    // 2x oversampled (jidai-common's 93-tap halfband pair) and ADAA on top:
+    // the two together keep a hard-driven high note clean
+    double fs = 48000.0;
+    float g = 2.f, bias = 0.f, toneA = 0.5f, comp = 1.f, dcA = 0.001f;
+    double xp[2] = {}, Fp[2] = {};
+    float lp[2] = {}, dc[2] = {};
+    jidai::dsp::Upsampler2x up[2];
+    jidai::dsp::Downsampler2x down[2];
+    static constexpr int kLat = 2 * jidai::dsp::Halfband93::kLatencyPerDirection;  // base samples
+    float dry[2][kLat] = {};
+    int dw = 0;
+    void prepare(double f) {
+        fs = f;
+        dcA = onePoleA(12.0, fs);
+        reset();
+    }
+    void reset() {
+        xp[0] = xp[1] = Fp[0] = Fp[1] = 0.0;
+        lp[0] = lp[1] = dc[0] = dc[1] = 0.f;
+        for (int c = 0; c < 2; ++c) {
+            up[c].reset();
+            down[c].reset();
+        }
+        std::memset(dry, 0, sizeof dry);
+        dw = 0;
+    }
+    void setParams(const float* p) {
+        g = static_cast<float>(std::pow(40.0, p[0]));  // 1 .. 40
+        toneA = onePoleA(1500.0 * std::pow(12.0, p[1]), fs);  // 1.5 .. 18 kHz
+        bias = 0.6f * p[2];
+        comp = 0.35f / std::tanh(0.35f * g);  // a -9 dBFS peak comes out at its own level
+    }
+    // f(x) = tanh(g x + b) - tanh(b); its antiderivative F(x) = log cosh(g x + b) / g - tanh(b) x
+    static double logCosh(double u) noexcept {
+        const double a = std::fabs(u);
+        return a + std::log1p(std::exp(-2.0 * a)) - 0.69314718055994531;
+    }
+    double shape(int c, double x, double tb) noexcept {
+        const double F = logCosh(g * x + bias) / g - tb * x;
+        const double dx = x - xp[c];
+        const double y = std::fabs(dx) > 1e-6 ? (F - Fp[c]) / dx : std::tanh(g * 0.5 * (x + xp[c]) + bias) - tb;
+        xp[c] = x;
+        Fp[c] = F;
+        return y;
+    }
+    // L / R come back as the dry delayed by the oversampler's latency, so MIX lines up
+    void process(float* L, float* R, float* wl, float* wr, int n) {
+        float* io[2] = {L, R};
+        float* out[2] = {wl, wr};
+        const double tb = std::tanh(static_cast<double>(bias));
+        for (int i = 0; i < n; ++i) {
+            for (int c = 0; c < 2; ++c) {
+                const float x = io[c][i];
+                double u0, u1;
+                up[c].process(x, u0, u1);
+                const double s0 = shape(c, u0, tb);  // in order: ADAA keeps the previous sample
+                const double s1 = shape(c, u1, tb);
+                const double y = down[c].process(s0, s1);
+                float v = static_cast<float>(y) * comp;
+                dc[c] += dcA * (v - dc[c]);  // the bias makes DC: block it
+                v -= dc[c];
+                lp[c] += toneA * (v - lp[c]);
+                out[c][i] = flush(lp[c]);
+                const float d = dry[c][dw];
+                dry[c][dw] = x;
+                io[c][i] = d;
+            }
+            dw = (dw + 1) % kLat;
+        }
+    }
+};
+
+// ---------------------------------------------------------------- LOFI
+
+struct FxRack::Lofi {
+    double fs = 48000.0;
+    float levels = 256.f, step = 1.f, toneA = 0.5f;
+    float ph = 0.f, hl = 0.f, hr = 0.f, l1[2] = {}, l2[2] = {};
+    void prepare(double f) { fs = f; reset(); }
+    void reset() {
+        ph = hl = hr = 0.f;
+        l1[0] = l1[1] = l2[0] = l2[1] = 0.f;
+    }
+    void setParams(const float* p) {
+        const float bits = 16.f - 13.f * p[0];  // 16 .. 3 bits
+        levels = std::exp2(bits - 1.f);
+        const double rateHz = fs * std::pow(1500.0 / fs, static_cast<double>(p[1]));  // fs .. 1.5 kHz
+        step = static_cast<float>(rateHz / fs);
+        toneA = onePoleA(800.0 * std::pow(25.0, p[2]), fs);  // 0.8 .. 20 kHz
+    }
+    void process(const float* inL, const float* inR, float* wl, float* wr, int n) {
+        for (int i = 0; i < n; ++i) {
+            ph += step;
+            if (ph >= 1.f) {  // sample and hold at the reduced rate
+                ph -= 1.f;
+                hl = std::round(clampf(inL[i], -1.f, 1.f) * levels) / levels;
+                hr = std::round(clampf(inR[i], -1.f, 1.f) * levels) / levels;
+            }
+            // two one-poles smooth the steps (the converter's reconstruction filter)
+            l1[0] += toneA * (hl - l1[0]);
+            l2[0] += toneA * (l1[0] - l2[0]);
+            l1[1] += toneA * (hr - l1[1]);
+            l2[1] += toneA * (l1[1] - l2[1]);
+            wl[i] = l2[0];
+            wr[i] = l2[1];
+        }
+    }
+};
+
+// ---------------------------------------------------------------- COMP
+
+struct FxRack::Comp {
+    double fs = 48000.0;
+    float thr = -18.f, ratio = 4.f, knee = 6.f, atk = 0.01f, rel = 0.001f, makeup = 1.f;
+    float env = 0.f;  // gain reduction, dB (>= 0)
+    float gr = 0.f;   // for tests / the screen
+    void prepare(double f) { fs = f; reset(); }
+    void reset() { env = 0.f; }
+    void setParams(const float* p) {
+        thr = -4.f - 32.f * p[0];  // -4 .. -36 dBFS
+        ratio = 1.5f + 8.5f * p[0];
+        const double aMs = 0.1 * std::pow(300.0, p[1]);  // 0.1 .. 30 ms
+        const double rMs = 30.0 * std::pow(25.0, p[2]);  // 30 .. 750 ms
+        atk = static_cast<float>(1.0 - std::exp(-1.0 / (aMs * 0.001 * fs)));
+        rel = static_cast<float>(1.0 - std::exp(-1.0 / (rMs * 0.001 * fs)));
+        // makeup: half the reduction a -6 dBFS peak would get
+        const float over = -6.f - thr;
+        makeup = std::pow(10.f, 0.5f * std::fmax(0.f, over * (1.f - 1.f / ratio)) / 20.f);
+    }
+    float curve(float db) const noexcept {  // gain reduction (dB) for a level, soft knee
+        const float o = db - thr;
+        if (2.f * o < -knee) return 0.f;
+        if (2.f * std::fabs(o) <= knee) {
+            const float t = o + 0.5f * knee;
+            return (1.f - 1.f / ratio) * t * t / (2.f * knee);
+        }
+        return (1.f - 1.f / ratio) * o;
+    }
+    void process(const float* inL, const float* inR, float* wl, float* wr, int n) {
+        for (int i = 0; i < n; ++i) {
+            const float pk = std::fmax(std::fabs(inL[i]), std::fabs(inR[i]));  // stereo linked
+            const float db = 20.f * std::log10(pk + 1e-9f);
+            const float want = curve(db);
+            env += (want > env ? atk : rel) * (want - env);
+            const float gain = std::pow(10.f, -env / 20.f) * makeup;
+            wl[i] = inL[i] * gain;
+            wr[i] = inR[i] * gain;
+        }
+        gr = env;
+    }
+};
+
 // ---------------------------------------------------------------- rack
 
 FxRack::FxRack()
-    : spring_(std::make_unique<SpringTank>()), plate_(std::make_unique<Plate>()), echo_(std::make_unique<Echo>()) {}
+    : spring_(std::make_unique<SpringTank>()), plate_(std::make_unique<Plate>()), echo_(std::make_unique<Echo>()),
+      chorus_(std::make_unique<Chorus>()), phaser_(std::make_unique<Phaser>()), filter_(std::make_unique<Svf>()),
+      drive_(std::make_unique<Drive>()), lofi_(std::make_unique<Lofi>()), comp_(std::make_unique<Comp>()) {}
 FxRack::~FxRack() = default;
 
 void FxRack::prepare(double fs) {
@@ -379,6 +716,12 @@ void FxRack::prepare(double fs) {
     spring_->prepare(fs);
     plate_->prepare(fs);
     echo_->prepare(fs);
+    chorus_->prepare(fs);
+    phaser_->prepare(fs);
+    filter_->prepare(fs);
+    drive_->prepare(fs);
+    lofi_->prepare(fs);
+    comp_->prepare(fs);
     setParams(p_);
 }
 
@@ -386,6 +729,12 @@ void FxRack::reset() noexcept {
     spring_->reset();
     plate_->reset();
     echo_->reset();
+    chorus_->reset();
+    phaser_->reset();
+    filter_->reset();
+    drive_->reset();
+    lofi_->reset();
+    comp_->reset();
 }
 
 void FxRack::setType(int t) noexcept {
@@ -403,8 +752,14 @@ void FxRack::setParams(const float p[4]) noexcept {
     }
     switch (type_) {
     case FX_SPRING: spring_->setParams(p_); break;
-    case FX_PLATE: plate_->setParams(p_); break;
-    default: echo_->setParams(p_); break;
+    case FX_REVERB: plate_->setParams(p_); break;
+    case FX_DELAY: echo_->setParams(p_); break;
+    case FX_CHORUS: chorus_->setParams(p_); break;
+    case FX_PHASER: phaser_->setParams(p_); break;
+    case FX_FILTER: filter_->setParams(p_); break;
+    case FX_DRIVE: drive_->setParams(p_); break;
+    case FX_LOFI: lofi_->setParams(p_); break;
+    default: comp_->setParams(p_); break;
     }
 }
 
@@ -440,17 +795,34 @@ void FxRack::process(float* L, float* R, int n, const float* mac) noexcept {
     }
     switch (type_) {
     case FX_SPRING: spring_->process(inL, inR, wl, wr, n); break;
-    case FX_PLATE: plate_->process(inL, inR, wl, wr, n); break;
-    default: echo_->process(inL, inR, wl, wr, n); break;
+    case FX_REVERB: plate_->process(inL, inR, wl, wr, n); break;
+    case FX_DELAY: echo_->process(inL, inR, wl, wr, n); break;
+    case FX_CHORUS: chorus_->process(inL, inR, wl, wr, n); break;
+    case FX_PHASER: phaser_->process(inL, inR, wl, wr, n); break;
+    case FX_FILTER: filter_->process(L, R, wl, wr, n, mac); break;
+    case FX_DRIVE: drive_->process(L, R, wl, wr, n); break;
+    case FX_LOFI: lofi_->process(L, R, wl, wr, n); break;
+    default: comp_->process(L, R, wl, wr, n); break;
     }
-    const float mix = clampf(p_[3] + macMean / 5.f, 0.f, 1.f);
+    const float mix = clampf(p_[3] + (type_ == FX_FILTER ? 0.f : macMean / 5.f), 0.f, 1.f);
     float w = wet_;
-    for (int i = 0; i < n; ++i) {
-        w += w < target ? ramp : -ramp;
-        w = clampf(w, 0.f, 1.f);
-        const float dryG = 1.f - 0.5f * mix * w;
-        L[i] = L[i] * dryG + wl[i] * mix * w * 1.4f;
-        R[i] = R[i] * dryG + wr[i] * mix * w * 1.4f;
+    if (isSend(type_)) {
+        for (int i = 0; i < n; ++i) {
+            w += w < target ? ramp : -ramp;
+            w = clampf(w, 0.f, 1.f);
+            const float dryG = 1.f - 0.5f * mix * w;
+            L[i] = L[i] * dryG + wl[i] * mix * w * 1.4f;
+            R[i] = R[i] * dryG + wr[i] * mix * w * 1.4f;
+        }
+    } else {
+        // inserts: crossfade dry -> processed (their input is not faded, so no tail to ring out)
+        for (int i = 0; i < n; ++i) {
+            w += w < target ? ramp : -ramp;
+            w = clampf(w, 0.f, 1.f);
+            const float m = mix * w;
+            L[i] = L[i] * (1.f - m) + wl[i] * m;
+            R[i] = R[i] * (1.f - m) + wr[i] * m;
+        }
     }
     wet_ = w;
 }

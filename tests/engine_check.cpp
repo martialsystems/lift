@@ -479,6 +479,95 @@ void springChecks() {
           "SPRING (DECAY 50 %): an impulse rings " + std::to_string(static_cast<int>(ms)) + " ms to -40 dB (energy), no NaN");
 }
 
+// Every effect in the rack: on a drum loop plus a held saw, at its default
+// knobs, the output differs clearly from the dry, stays finite and bounded.
+void fxChecks() {
+    auto source = [](int i) {
+        const double t = i / kFs;
+        const double saw = 2.0 * std::fmod(t * 110.0, 1.0) - 1.0;
+        const double hit = std::fmod(t, 0.5) < 0.02 ? std::sin(2.0 * 3.14159265 * 60.0 * t) * std::exp(-std::fmod(t, 0.5) * 80.0) : 0.0;
+        return static_cast<float>(0.25 * saw + 0.6 * hit);
+    };
+    for (int f = 0; f < kFxTypes; ++f) {
+        auto fx = std::make_unique<FxRack>();
+        fx->prepare(kFs);
+        fx->setType(f);
+        fx->setParams(kFxDefaults[f]);
+        float l[kBlock], r[kBlock];
+        double d2 = 0.0, x2 = 0.0;
+        float pk = 0.f;
+        bool fin = true;
+        int i0 = 0;
+        for (int b = 0; b < static_cast<int>(3.0 * kFs / kBlock); ++b) {
+            float dry[kBlock];
+            for (int s = 0; s < kBlock; ++s) dry[s] = l[s] = r[s] = source(i0 + s);
+            i0 += kBlock;
+            fx->process(l, r, kBlock, nullptr);
+            if (b * kBlock < kFs) continue;  // skip the first second
+            for (int s = 0; s < kBlock; ++s) {
+                d2 += (l[s] - dry[s]) * (l[s] - dry[s]);
+                x2 += dry[s] * dry[s];
+                pk = std::max(pk, std::max(std::fabs(l[s]), std::fabs(r[s])));
+                fin = fin && std::isfinite(l[s]) && std::isfinite(r[s]);
+            }
+        }
+        const double db = 10.0 * std::log10(d2 / std::max(1e-12, x2));
+        check(fin && db > -26.0 && pk < 2.f, std::string("FX ") + kFxNames[f] + ": changes the sound (" +
+                                                 std::to_string(static_cast<int>(std::round(db))) + " dB vs dry), peak " +
+                                                 std::to_string(pk).substr(0, 4) + ", finite");
+    }
+    {  // COMP evens out a loud / quiet alternation
+        auto fx = std::make_unique<FxRack>();
+        fx->prepare(kFs);
+        fx->setType(FX_COMP);
+        const float p[4] = {0.8f, 0.2f, 0.3f, 1.f};
+        fx->setParams(p);
+        float l[kBlock], r[kBlock];
+        double loud = 0, quiet = 0;
+        for (int b = 0; b < static_cast<int>(4.0 * kFs / kBlock); ++b) {
+            const bool hi = (b / 375) % 2 == 0;  // 0.25 s each
+            for (int s = 0; s < kBlock; ++s) l[s] = r[s] = (hi ? 0.8f : 0.1f) * static_cast<float>(std::sin(0.05 * (b * kBlock + s)));
+            fx->process(l, r, kBlock, nullptr);
+            if (b % 375 > 200) {
+                for (int s = 0; s < kBlock; ++s) (hi ? loud : quiet) += l[s] * l[s];
+            }
+        }
+        const double range = 10.0 * std::log10(loud / quiet);
+        check(range < 12.0, "COMP: an 18 dB loud/quiet swing comes out " + std::to_string(range).substr(0, 4) + " dB apart");
+    }
+    {  // DRIVE: antialiased saturation, a hot 3 kHz sine leaves few alias spikes
+        auto fx = std::make_unique<FxRack>();
+        fx->prepare(kFs);
+        fx->setType(FX_DRIVE);
+        const float p[4] = {0.7f, 1.f, 0.f, 1.f};
+        fx->setParams(p);
+        const size_t N = 1 << 15;
+        std::vector<float> x;
+        float l[kBlock], r[kBlock];
+        int i0 = 0;
+        while (x.size() < N + 4800) {
+            for (int s = 0; s < kBlock; ++s) l[s] = r[s] = 0.8f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 3100.0 * (i0 + s) / kFs));
+            i0 += kBlock;
+            fx->process(l, r, kBlock, nullptr);
+            x.insert(x.end(), l, l + kBlock);
+        }
+        std::vector<std::complex<double>> a(N);
+        for (size_t i = 0; i < N; ++i) a[i] = x[i + 4800] * (0.5 - 0.5 * std::cos(2.0 * 3.14159265358979 * i / (N - 1)));
+        fft(a);
+        double top = 0, alias = 0, worstHz = 0;
+        for (size_t k = 2; k < N / 2; ++k) {
+            const double m = std::abs(a[k]), f = k * kFs / N, h = f / 3100.0;
+            top = std::max(top, m);
+            if (std::fabs(h - std::floor(h + 0.5)) * 3100.0 > 30.0 && m > alias) {
+                alias = m;
+                worstHz = f;
+            }
+        }
+        const double db = 20.0 * std::log10(alias / top);
+        check(db < -40.0, "DRIVE (ADAA): 3.1 kHz driven hard, worst alias spike " + std::to_string(static_cast<int>(db)) + " dB (at " + std::to_string(static_cast<int>(worstHz)) + " Hz)");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -488,6 +577,7 @@ int main() {
     sequencerChecks();
     aliasChecks();
     springChecks();
+    fxChecks();
     cpuReport();
     std::printf("%s (%d failure%s)\n", failures == 0 ? "ALL PASS" : "FAILURES", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
