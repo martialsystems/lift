@@ -142,8 +142,8 @@ juce::String LiftPanel::shiftLabel(int group, int kind, int idx, bool& real) con
                                         "JUMP M1",  "JUMP M2",  "JUMP M3",  "JUMP M4",  "TO START", "TO LOOP IN", "LOOP X2"};
             return w[idx];
         }
-        static const char* b[10] = {"0.5X SPEED", "1X SPEED", "2X SPEED", "REVERSE", "UNDO DROP",
-                                    "CLEAR TRACK", "SET MARK", "CHARACTER", "BACK 1 S", "FWD 1 S"};
+        static const char* b[10] = {"0.5X SPEED", "1X SPEED", "2X SPEED", "REVERSE", "UNDO",
+                                    "CLEAR TRACK", "SET MARK", "CASSETTE", "BACK 1 S", "FWD 1 S"};
         return b[idx];
     }
     if (group == 1) {

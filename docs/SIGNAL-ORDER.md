@@ -33,7 +33,7 @@ live source (synth + drums + clip keys, or IN) ─► IN GAIN / THRESH ─► mo
    the cassette, on the whole bus. The per-voice GRAIN / PULSE slots above are
    the defined order and pass through until per-loop instances exist (next
    step); GRAIN as SYNTH key 8 is a source voice and sits at step 1/2.
-4. **Cassette stage.** Optional, off by default (SHIFT + white 7 cycles
+4. **Cassette stage.** Optional, off by default (SHIFT + black 8 cycles
    CASSETTE OFF → character 1..4 → OFF). On, the loop sum runs through the
    playback electronics and the record path through the record electronics
    (BIAS, REC LVL drive, hiss, wow). Off, the looper records the source straight
