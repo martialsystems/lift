@@ -499,6 +499,12 @@ void Instrument::runNode(int node, TapeHost& tape, const InstrumentCtl& ctl) noe
         cv.level = 0.1f * blockMean(router.in(C_LEVEL));
         gPos_ = blockMean(router.in(C_GPOS));
         gSize_ = blockMean(router.in(C_GSIZE));
+        // G POS / G SIZE drive whichever GRAIN is active: the FX when GRAIN is
+        // the selected effect and the insert is on, else the GRAIN engine
+        if (!(ctl.fxOn && fx.type() == FX_GRAIN)) {
+            cv.gPos = gPos_;
+            cv.gSize = gSize_;
+        }
         const float* gate = router.in2(I_GATE, C_GATE);
         if (gate != nullptr && gateTaken_) {
             const bool h = schmitt(cvGate_, blockMax(gate));
@@ -547,6 +553,9 @@ void Instrument::runNode(int node, TapeHost& tape, const InstrumentCtl& ctl) noe
         tape.mixBlock(io, kBlock);
         // FX on the bus: loops (after GRAIN / PULSE / cassette) + the live source
         fx.setBypass(!ctl.fxOn);
+        fx.setTempo(ctl.bpm);
+        const bool grainFx = ctl.fxOn && fx.type() == FX_GRAIN;
+        fx.setGrainCv(grainFx ? gPos_ : 0.f, grainFx ? gSize_ : 0.f);
         fx.process(outL_, outR_, kBlock, router.in(C_FXMAC));
         {
             float* o = router.out(O_FXOUT);

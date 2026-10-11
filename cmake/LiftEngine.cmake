@@ -10,6 +10,7 @@ add_library(lift_engine STATIC
     ${LIFT_ROOT}/src/engine/instrument.cpp
     ${LIFT_ROOT}/src/engine/resample.cpp
     ${LIFT_ROOT}/src/engine/clipvoice.cpp
+    ${LIFT_ROOT}/src/engine/grain.cpp
     ${LIFT_ROOT}/third_party/jidai/shogun/shogun.cpp
 )
 target_include_directories(lift_engine PUBLIC ${LIFT_ROOT}/src)

@@ -10,13 +10,16 @@
 // PolyBLEP oscillators, the ZDF ladder, the OTA SVF, RC envelopes, the
 // halfband decimator) plus LIFT's own engines.
 
+#include "engine/grain.h"
+
 #include <cstdint>
 #include <memory>
 
 namespace lift::eng {
 
 constexpr int kSynthVoices = 6;
-enum SynthEngine : int { LOOM, BEND, FOLD, RATIO, WIRE, SWARM, SPOOL, SPARE, kSynthEngines };
+// key 8 (was SPARE) is GRAIN: a granular cloud over the armed loop region
+enum SynthEngine : int { LOOM, BEND, FOLD, RATIO, WIRE, SWARM, SPOOL, GRAIN, kSynthEngines, SPARE = GRAIN };
 
 // Per-sample control inputs from the patch bay (null = not patched).
 struct SynthCv {
@@ -28,6 +31,7 @@ struct SynthCv {
     float decay = 0.f;  // the engine's DECAY (fourth) macro
     float reso = 0.f;   // filter resonance (LOOM's ladder)
     float level = 0.f;  // output level (x (1 + level))
+    float gPos = 0.f, gSize = 0.f;  // G POS / G SIZE volts (GRAIN engine, when the GRAIN FX is not the active one)
 };
 
 class PolySynth {
@@ -85,6 +89,8 @@ private:
     int spoolFrames_ = 0, spoolLoopStart_ = 0, spoolLoopEnd_ = 0;
     std::unique_ptr<Voice[]> v_;
     std::unique_ptr<float[]> strings_;  // WIRE delay lines
+    GrainCloud grain_;                  // GRAIN engine
+    float grainEnv_ = 0.f;
     struct Dec;
     std::unique_ptr<Dec> dec_;
     float scratch_[128] = {};

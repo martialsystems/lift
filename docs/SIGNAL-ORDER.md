@@ -25,8 +25,14 @@ live source (synth + drums + clip keys, or IN) ─► IN GAIN / THRESH ─► mo
    (rate = key pitch).
 2. **GRAIN.** Reads its *own* fixed 8 s rolling buffer (see below), never the
    looper's buffer, so SPEED / SCRUB / REV and grain position never fight.
-3. **PULSE.** Rhythmic gate / stutter / time-stop on the voice output with
-   its own small buffer (one bar max).
+3. **PULSE.** Rhythmic gate / stutter / time-stop with its own small buffer
+   (2 s).
+
+   In this pass GRAIN and PULSE ship as **FX types** (FX page 2: the FX pad
+   cycles on past COMP), so in the insert they run at the FX position, after
+   the cassette, on the whole bus. The per-voice GRAIN / PULSE slots above are
+   the defined order and pass through until per-loop instances exist (next
+   step); GRAIN as SYNTH key 8 is a source voice and sits at step 1/2.
 4. **Cassette stage.** Optional, off by default (SHIFT + white 7 cycles
    CASSETTE OFF → character 1..4 → OFF). On, the loop sum runs through the
    playback electronics and the record path through the record electronics

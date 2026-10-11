@@ -23,6 +23,7 @@ set(LIFT_ENGINE_SOURCES
     ${LIFT_ROOT}/src/engine/fx.cpp
     ${LIFT_ROOT}/src/engine/instrument.cpp
     ${LIFT_ROOT}/src/engine/resample.cpp
+    ${LIFT_ROOT}/src/engine/grain.cpp
     ${LIFT_ROOT}/src/engine/clipvoice.cpp
     ${LIFT_ROOT}/third_party/jidai/shogun/shogun.cpp
 )

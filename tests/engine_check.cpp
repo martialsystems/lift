@@ -451,7 +451,7 @@ void fft(std::vector<std::complex<double>>& a) {
 }
 
 void aliasChecks() {
-    const char* names[8] = {"LOOM", "BEND", "FOLD", "RATIO", "WIRE", "SWARM", "SPOOL", "SPARE"};
+    const char* names[8] = {"LOOM", "BEND", "FOLD", "RATIO", "WIRE", "SWARM", "SPOOL", "GRAIN"};
     // harmonic engines with a clean spectrum at zero detune
     const float macros[4][4] = {{0.f, 0.9f, 0.f, 1.f}, {0.7f, 0.9f, 0.f, 1.f}, {0.6f, 0.5f, 0.f, 1.f}, {0.f, 0.f, 0.6f, 0.3f}};
     for (int e = 0; e < 4; ++e) {
@@ -498,11 +498,11 @@ double nowMs() {
 
 void cpuReport() {
     const double secs = 10.0;
-    const char* names[8] = {"LOOM", "BEND", "FOLD", "RATIO", "WIRE", "SWARM", "SPOOL", "SPARE"};
+    const char* names[8] = {"LOOM", "BEND", "FOLD", "RATIO", "WIRE", "SWARM", "SPOOL", "GRAIN"};
     std::vector<float> spool(96000);
     for (size_t i = 0; i < spool.size(); ++i) spool[i] = 0.3f * static_cast<float>(std::sin(i * 0.05));
     std::string line = "CPU (% of one core at 48 kHz) per synth voice:";
-    for (int e = 0; e < 7; ++e) {
+    for (int e = 0; e < 8; ++e) {
         auto s = std::make_unique<PolySynth>();
         s->prepare(kFs);
         s->setSpoolSource(spool.data(), spool.data(), static_cast<int>(spool.size()), 0, 0);
@@ -697,6 +697,108 @@ void fxChecks() {
 
 }  // namespace
 
+
+// GRAIN: the FX keeps its own fixed 8 s rolling buffer (any loop length, any
+// varispeed); POS reaches back through it; G POS adds to POS; PULSE gates on
+// the tempo grid. The cloud is live: it follows the input as it changes.
+static double tone(const std::vector<float>& x, size_t a, size_t b, double hz) {
+    double re = 0.0, im = 0.0;
+    for (size_t i = a; i < b; ++i) {
+        const double ph = 2.0 * 3.14159265358979 * hz * static_cast<double>(i) / kFs;
+        re += x[i] * std::cos(ph);
+        im += x[i] * std::sin(ph);
+    }
+    return 2.0 * std::sqrt(re * re + im * im) / static_cast<double>(b - a);
+}
+
+void grainChecks() {
+    auto fx = std::make_unique<FxRack>();
+    fx->prepare(kFs);
+    check(fx->grain().capacity() == static_cast<int>(8.0 * kFs), "GRAIN FX buffer is a fixed 8 s (" +
+          std::to_string(fx->grain().capacity()) + " frames)");
+    // 4 s of 220 Hz then 4 s of 440 Hz through the rack while another effect
+    // (COMP) is selected: the GRAIN buffer still rolls
+    fx->setType(FX_COMP);
+    float l[kBlock], r[kBlock];
+    int i0 = 0;
+    auto feed = [&](double secs, double hz) {
+        for (int b = 0; b < static_cast<int>(secs * kFs / kBlock); ++b) {
+            for (int s = 0; s < kBlock; ++s) l[s] = r[s] = 0.3f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * hz * (i0 + s) / kFs));
+            i0 += kBlock;
+            fx->process(l, r, kBlock, nullptr);
+        }
+    };
+    feed(4.0, 220.0);
+    feed(4.0, 440.0);
+    fx->setType(FX_GRAIN);
+    auto cloud = [&](float pos, float posV) {
+        float p[4] = {pos, 0.4f, 0.6f, 1.f};
+        fx->setParams(p);
+        fx->setGrainCv(posV, 0.f);
+        std::vector<float> out;
+        for (int b = 0; b < static_cast<int>(1.0 * kFs / kBlock); ++b) {
+            for (int s = 0; s < kBlock; ++s) l[s] = r[s] = 0.f;  // silence in: only the buffer speaks
+            fx->process(l, r, kBlock, nullptr);
+            out.insert(out.end(), l, l + kBlock);
+        }
+        return out;
+    };
+    // (silence goes into the buffer as it plays, so each read is short and early)
+    const auto recent = cloud(0.02f, 0.f);
+    const double r220 = tone(recent, 0, 9600, 220.0), r440 = tone(recent, 0, 9600, 440.0);
+    fx->reset();
+    std::printf("INFO  GRAIN POS 0: 220 Hz %.4f, 440 Hz %.4f\n", r220, r440);
+    check(r440 > 3.0 * r220, "GRAIN POS near 0 reads the newest audio in its own buffer (440 Hz)");
+    // refill and reach back with the G POS pin instead of the knob
+    fx->setType(FX_COMP);
+    feed(4.0, 220.0);
+    feed(4.0, 440.0);
+    fx->setType(FX_GRAIN);
+    const auto back = cloud(0.f, 4.5f);  // +4.5 V = POS 0.9: 7 s back
+    const double b220 = tone(back, 0, 9600, 220.0), b440 = tone(back, 0, 9600, 440.0);
+    std::printf("INFO  GRAIN G POS +4.5 V: 220 Hz %.4f, 440 Hz %.4f\n", b220, b440);
+    check(b220 > 3.0 * b440, "G POS reaches back through the 8 s buffer (220 Hz, 7 s ago)");
+    // PULSE: a gate on the tempo grid (1/16 at 120 BPM = 125 ms)
+    auto pu = std::make_unique<FxRack>();
+    pu->prepare(kFs);
+    pu->setType(FX_PULSE);
+    pu->setTempo(120.0);
+    float pp[4] = {0.67f, 0.5f, 0.f, 1.f};
+    pu->setParams(pp);
+    std::vector<float> g;
+    for (int b = 0; b < static_cast<int>(1.0 * kFs / kBlock); ++b) {
+        for (int s = 0; s < kBlock; ++s) l[s] = r[s] = 0.5f;
+        pu->process(l, r, kBlock, nullptr);
+        g.insert(g.end(), l, l + kBlock);
+    }
+    int edges = 0;
+    for (size_t i = 1; i < g.size(); ++i) edges += (g[i - 1] < 0.25f && g[i] >= 0.25f) ? 1 : 0;
+    std::printf("INFO  PULSE 1/16 at 120 BPM: %d gate openings in 1 s\n", edges);
+    {
+        // GRAIN as SYNTH key 8: grains over a loop region, pitched by the key
+        std::vector<float> src(96000);
+        for (size_t i = 0; i < src.size(); ++i) src[i] = 0.3f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 220.0 * i / kFs));
+        auto syn = std::make_unique<PolySynth>();
+        syn->prepare(kFs);
+        syn->setSpoolSource(src.data(), src.data(), static_cast<int>(src.size()), 0, 0);
+        syn->setEngine(GRAIN);
+        const float m[4] = {0.f, 0.2f, 0.5f, 0.3f};
+        syn->setMacros(m);
+        syn->noteOn(72, 1.f);  // an octave up: 440 Hz
+        std::vector<float> x;
+        float buf[kBlock];
+        SynthCv cv;
+        for (int b = 0; b < static_cast<int>(1.0 * kFs / kBlock); ++b) {
+            syn->render(buf, kBlock, cv);
+            x.insert(x.end(), buf, buf + kBlock);
+        }
+        const double t440 = tone(x, 9600, x.size(), 440.0), t220 = tone(x, 9600, x.size(), 220.0);
+        std::printf("INFO  GRAIN engine, C5 over a 220 Hz loop: 440 Hz %.4f, 220 Hz %.4f\n", t440, t220);
+        check(t440 > 0.01 && t440 > 3.0 * t220, "GRAIN engine (key 8) plays grains of the loop, pitched by the key");
+    }
+    check(edges >= 7 && edges <= 9, "PULSE gates on the tempo grid (8 per second at 1/16, 120 BPM)");
+}
+
 int main() {
     patchChecks();
     quantChecks();
@@ -706,6 +808,7 @@ int main() {
     aliasChecks();
     springChecks();
     fxChecks();
+    grainChecks();
     cpuReport();
     std::printf("%s (%d failure%s)\n", failures == 0 ? "ALL PASS" : "FAILURES", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;

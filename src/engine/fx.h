@@ -32,13 +32,23 @@
 //   COMP    stereo-linked feed-forward compressor, soft knee, log-domain
 //           attack / release, auto makeup (MIX = parallel compression).
 //           AMOUNT, ATTACK, RELEASE, MIX.
+//  page 2 (the FX pad cycles on into these):
+//   GRAIN   a granular cloud over its own fixed 8 s rolling buffer, written
+//           with the FX input all the time (whatever effect is selected),
+//           independent of loop length and varispeed (engine/grain.h).
+//           POS (how far back), SIZE, DENSITY, MIX; G POS / G SIZE pins add.
+//   PULSE   rhythmic gate / stutter on the tempo grid with its own 2 s
+//           buffer: RATE (1/4 .. 1/32), GATE (duty), STUTTER (chance a step
+//           repeats the previous step: time-stop at 100 %), MIX.
+
+#include "engine/grain.h"
 
 #include <cstdint>
 #include <memory>
 
 namespace lift::eng {
 
-enum FxType : int { FX_SPRING, FX_REVERB, FX_DELAY, FX_CHORUS, FX_PHASER, FX_FILTER, FX_DRIVE, FX_LOFI, FX_COMP, kFxTypes };
+enum FxType : int { FX_SPRING, FX_REVERB, FX_DELAY, FX_CHORUS, FX_PHASER, FX_FILTER, FX_DRIVE, FX_LOFI, FX_COMP, FX_GRAIN, FX_PULSE, kFxTypes };
 extern const char* const kFxNames[kFxTypes];
 extern const char* const kFxKnobNames[kFxTypes][4];
 extern const float kFxDefaults[kFxTypes][4];
@@ -61,6 +71,11 @@ public:
     // FILTER it sweeps the cutoff instead (1 V = 1 octave).
     void process(float* L, float* R, int n, const float* mac) noexcept;
     float shake() const noexcept;  // spring tank motion, for tests / the screen
+    void setTempo(double bpm) noexcept { bpm_ = bpm > 20.0 ? bpm : 20.0; }
+    // G POS / G SIZE columns (volts, block mean), for the GRAIN effect
+    void setGrainCv(float posV, float sizeV) noexcept { gPosV_ = posV; gSizeV_ = sizeV; }
+    const GrainCloud& grain() const noexcept { return grain_; }
+    struct Stutter;
 
     struct SpringTank;
     struct Plate;
@@ -88,6 +103,10 @@ private:
     std::unique_ptr<Drive> drive_;
     std::unique_ptr<Lofi> lofi_;
     std::unique_ptr<Comp> comp_;
+    std::unique_ptr<Stutter> pulse_;
+    GrainCloud grain_;
+    double bpm_ = 120.0;
+    float gPosV_ = 0.f, gSizeV_ = 0.f;
 };
 
 }  // namespace lift::eng

@@ -131,6 +131,7 @@ PolySynth::~PolySynth() = default;
 void PolySynth::prepare(double fs) {
     fs_ = fs;
     fsE_ = 2.0 * fs;
+    grain_.prepare(fs);
     strings_.reset(new float[static_cast<size_t>(kStringLen) * kSynthVoices]);
     std::memset(strings_.get(), 0, sizeof(float) * static_cast<size_t>(kStringLen) * kSynthVoices);
     for (int i = 0; i < kSynthVoices; ++i) {
@@ -374,6 +375,39 @@ void PolySynth::render(float* out, int n, const SynthCv& cv) noexcept {
     }
     for (; o < n; ++o) {
         out[o] = 0.f;
+    }
+    if (engine_ == GRAIN) {
+        // GRAIN (key 8): grains over the armed loop region, pitched by the
+        // newest held key (C4 = as recorded). Knobs by colour: yellow PITCH
+        // (random detune), blue SPRAY, black SIZE, red POS; G POS / G SIZE add.
+        bool held = false;
+        int note = lastNote_ >= 0 ? lastNote_ : 60;
+        for (int k = 0; k < kSynthVoices; ++k) {
+            Voice& v = v_[k];
+            if (v.active && v.gate) held = true;
+            if (v.active && !v.gate && grainEnv_ < 1e-4f) v.active = false;
+        }
+        grain_.setSource(spoolL_, spoolR_, spoolFrames_, spoolLoopStart_, spoolLoopEnd_);
+        GrainCloud::Params gp;
+        gp.pitchSpread = 12.f * m_[0] * m_[0];
+        gp.spray = m_[1];
+        gp.size = clampf(m_[2] + cv.gSize / 5.f, 0.f, 1.f);
+        gp.pos = clampf(m_[3] + cv.gPos / 5.f, 0.f, 1.f);
+        gp.density = 0.6f;
+        float pcv = 0.f;
+        if (cv.pitch != nullptr) {
+            for (int i = 0; i < n; ++i) pcv += cv.pitch[i];
+            pcv /= static_cast<float>(n);
+        }
+        gp.pitch = std::exp2((note - 60 + bend_ + 12.0 * pcv) / 12.0);
+        const float target = held ? 1.f : 0.f;
+        const float a = held ? 0.02f : 0.002f;  // ~1 ms on, ~10 ms off per block step
+        float gl[64] = {}, gr[64] = {};
+        grain_.render(gl, gr, n, gp, 1.f);
+        for (int i = 0; i < n; ++i) {
+            grainEnv_ += a * (target - grainEnv_);
+            out[i] += 0.5f * (gl[i] + gr[i]) * grainEnv_;
+        }
     }
     // dry-source level match: every engine sits at the same loudness for the
     // same playing (tests/resample_check measures it), times the LEVEL column

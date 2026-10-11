@@ -627,6 +627,34 @@ int main(int argc, char** argv) {
         p.act("stop");
         r.step(0.5);
     }
+    {
+        std::printf("-- GRAIN FX: resampling keeps the live cloud\n");
+        Rig r;
+        r.proc.send(lift::Cmd::FxType, lift::eng::FX_GRAIN);
+        r.proc.fxOn.store(true);
+        r.proc.fxKnobs[0].store(0.f);   // POS: the newest audio
+        r.proc.fxKnobs[1].store(0.35f);
+        r.proc.fxKnobs[2].store(0.7f);
+        r.proc.fxKnobs[3].store(1.f);   // all cloud, no dry
+        r.proc.send(lift::Cmd::NoteOn, 57, 100);  // A3 220 Hz
+        r.step(1.5);
+        r.proc.send(lift::Cmd::NoteOff, 57);
+        r.proc.send(lift::Cmd::NoteOn, 69, 100);  // A4 440 Hz
+        r.step(1.5);
+        r.proc.send(lift::Cmd::NoteOff, 69);
+        const auto c = r.proc.keepLast(3.0);
+        bool ok = c != nullptr;
+        double a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+        if (ok) {
+            const int h = c->frames() / 2;
+            a1 = toneAmp(c->l.data(), 4800, h - 4800, 220.0);
+            b1 = toneAmp(c->l.data(), 4800, h - 4800, 440.0);
+            a2 = toneAmp(c->l.data(), h + 9600, c->frames() - 2400, 220.0);
+            b2 = toneAmp(c->l.data(), h + 9600, c->frames() - 2400, 440.0);
+        }
+        std::printf("  kept cloud: first half 220 %.4f / 440 %.4f, second half 220 %.4f / 440 %.4f\n", a1, b1, a2, b2);
+        check(ok && a1 > 5.0 * a2 && b2 > 2.0 * b1, "a keep of the GRAIN effect is the cloud as it evolved (220 Hz, then 440 Hz), not a frozen window");
+    }
     runStateChecks([](bool ok, const juce::String& what) { check(ok, what); });
     runKnobChecks([](bool ok, const juce::String& what) { check(ok, what); });
     if (anim) {

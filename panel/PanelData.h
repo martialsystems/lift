@@ -111,7 +111,7 @@ inline const EngineDef ENGINES[8] = {
     {"WIRE", "PLUCKED STRING", {"DAMPING", "PLUCK POS", "TONE", "DECAY"}},
     {"SWARM", "DETUNED SINES \xc2\xb7 ONE AMP ENVELOPE", {"SPREAD", "DENSITY", "ATTACK", "RELEASE"}},
     {"SPOOL", "ONE FILE \xc2\xb7 SLICED OR ROOT-MAPPED", {"START", "LENGTH", "PITCH", "DECAY"}},
-    {"SPARE", "EMPTY IN THIS VERSION", {"\xe2\x80\x94", "\xe2\x80\x94", "\xe2\x80\x94", "\xe2\x80\x94"}}};
+    {"GRAIN", "GRAINS OVER THE ARMED LOOP", {"PITCH", "SPRAY", "SIZE", "POS"}}};
 // kit names = the drum engine's (src/engine/drums.cpp): 808 / 909 tunings and pattern variants
 inline const char* const KITS[8] = {"808", "909", "808 B", "909 B", "808 C", "909 C", "808 D", "909 D"};
 inline const char* const INPUTS[8] = {"LINE", "MIC", "RADIO", "RESAMPLE", "", "", "", ""};

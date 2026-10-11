@@ -6,20 +6,23 @@
 
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 #include <vector>
 
 namespace lift::eng {
 
 const char* const kFxNames[kFxTypes] = {"SPRING", "REVERB", "DELAY", "CHORUS", "PHASER",
-                                        "FILTER", "DRIVE",  "LOFI",  "COMP"};
+                                        "FILTER", "DRIVE",  "LOFI",  "COMP", "GRAIN", "PULSE"};
 const char* const kFxKnobNames[kFxTypes][4] = {
     {"TONE", "DECAY", "TENSION", "MIX"},  {"SIZE", "DECAY", "TONE", "MIX"},     {"TIME", "FEEDBACK", "TONE", "MIX"},
     {"RATE", "DEPTH", "FLANGE", "MIX"},   {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"CUTOFF", "RESO", "MODE", "MIX"},
-    {"DRIVE", "TONE", "BIAS", "MIX"},     {"BITS", "RATE", "TONE", "MIX"},      {"AMOUNT", "ATTACK", "RELEASE", "MIX"}};
+    {"DRIVE", "TONE", "BIAS", "MIX"},     {"BITS", "RATE", "TONE", "MIX"},      {"AMOUNT", "ATTACK", "RELEASE", "MIX"},
+    {"POS", "SIZE", "DENSITY", "MIX"},    {"RATE", "GATE", "STUTTER", "MIX"}};
 const float kFxDefaults[kFxTypes][4] = {
     {0.55f, 0.4f, 0.5f, 0.25f}, {0.6f, 0.55f, 0.5f, 0.3f},  {0.45f, 0.45f, 0.5f, 0.3f},
     {0.3f, 0.45f, 0.f, 0.5f},  {0.25f, 0.6f, 0.45f, 0.5f}, {0.55f, 0.35f, 0.f, 1.f},
-    {0.45f, 0.5f, 0.3f, 1.f},  {0.5f, 0.5f, 0.6f, 1.f},    {0.5f, 0.3f, 0.4f, 1.f}};
+    {0.45f, 0.5f, 0.3f, 1.f},  {0.5f, 0.5f, 0.6f, 1.f},    {0.5f, 0.3f, 0.4f, 1.f},
+    {0.15f, 0.45f, 0.55f, 0.6f}, {0.67f, 0.5f, 0.35f, 1.f}};
 
 // Reverbs and the delay add a wet signal to the dry; the rest replace it (MIX
 // crossfades dry to processed, so 100 % is the full effect).
@@ -705,14 +708,86 @@ struct FxRack::Comp {
 
 // ---------------------------------------------------------------- rack
 
+// PULSE: a gate on the tempo grid; at each step it may repeat the previous
+// step's audio from its 2 s buffer instead of passing the live input.
+struct FxRack::Stutter {
+    double fs = 48000.0;
+    std::vector<float> l, r;
+    int cap = 0, w = 0;
+    double phase = 0.0;      // frames into the current step
+    int stepStart = 0;       // ring index where the current step began
+    int prevStart = 0, prevLen = 0;
+    bool repeat = false;
+    int readPos = 0;
+    float env = 0.f;
+    std::uint32_t rng = 12345u;
+    float rate = 0.67f, gate = 0.5f, stutter = 0.35f;
+    void prepare(double f) {
+        fs = f;
+        cap = static_cast<int>(2.0 * fs);
+        l.assign(static_cast<size_t>(cap), 0.f);
+        r.assign(static_cast<size_t>(cap), 0.f);
+        reset();
+    }
+    void reset() noexcept {
+        std::fill(l.begin(), l.end(), 0.f);
+        std::fill(r.begin(), r.end(), 0.f);
+        w = 0;
+        phase = 0.0;
+        stepStart = prevStart = prevLen = 0;
+        repeat = false;
+        env = 0.f;
+    }
+    void setParams(const float* p) noexcept {
+        rate = p[0];
+        gate = p[1];
+        stutter = p[2];
+    }
+    void process(const float* inL, const float* inR, float* outL, float* outR, int n, double bpm) noexcept {
+        static const int kDivs[4] = {4, 8, 16, 32};
+        const int div = kDivs[std::min(3, static_cast<int>(rate * 4.f))];
+        const double stepLen = std::min(60.0 / bpm * 4.0 / div * fs, static_cast<double>(cap / 2));
+        const float duty = 0.08f + 0.92f * gate;
+        const float a = 1.f - std::exp(-1.f / (0.002f * static_cast<float>(fs)));  // 2 ms edges
+        for (int i = 0; i < n; ++i) {
+            l[static_cast<size_t>(w)] = inL[i];
+            r[static_cast<size_t>(w)] = inR[i];
+            if (phase >= stepLen) {
+                phase -= stepLen;
+                prevStart = stepStart;
+                prevLen = static_cast<int>(stepLen);
+                stepStart = w;
+                rng = rng * 1664525u + 1013904223u;
+                repeat = static_cast<float>(rng >> 8) / 16777216.f < stutter;
+                readPos = prevStart;
+            }
+            float xl = inL[i], xr = inR[i];
+            if (repeat) {
+                xl = l[static_cast<size_t>(readPos)];
+                xr = r[static_cast<size_t>(readPos)];
+                if (++readPos >= cap) readPos = 0;
+            }
+            const float target = phase < duty * stepLen ? 1.f : 0.f;
+            env += a * (target - env);
+            outL[i] = xl * env;
+            outR[i] = xr * env;
+            phase += 1.0;
+            if (++w >= cap) w = 0;
+        }
+    }
+};
+
 FxRack::FxRack()
     : spring_(std::make_unique<SpringTank>()), plate_(std::make_unique<Plate>()), echo_(std::make_unique<Echo>()),
       chorus_(std::make_unique<Chorus>()), phaser_(std::make_unique<Phaser>()), filter_(std::make_unique<Svf>()),
-      drive_(std::make_unique<Drive>()), lofi_(std::make_unique<Lofi>()), comp_(std::make_unique<Comp>()) {}
+      drive_(std::make_unique<Drive>()), lofi_(std::make_unique<Lofi>()), comp_(std::make_unique<Comp>()),
+      pulse_(std::make_unique<Stutter>()) {}
 FxRack::~FxRack() = default;
 
 void FxRack::prepare(double fs) {
     fs_ = fs;
+    pulse_->prepare(fs);
+    grain_.prepare(fs);
     spring_->prepare(fs);
     plate_->prepare(fs);
     echo_->prepare(fs);
@@ -735,6 +810,8 @@ void FxRack::reset() noexcept {
     drive_->reset();
     lofi_->reset();
     comp_->reset();
+    if (pulse_) pulse_->reset();
+    grain_.stopGrains();  // the GRAIN buffer itself is not reset: it keeps rolling whatever effect is selected
 }
 
 void FxRack::setType(int t) noexcept {
@@ -759,7 +836,9 @@ void FxRack::setParams(const float p[4]) noexcept {
     case FX_FILTER: filter_->setParams(p_); break;
     case FX_DRIVE: drive_->setParams(p_); break;
     case FX_LOFI: lofi_->setParams(p_); break;
-    default: comp_->setParams(p_); break;
+    case FX_COMP: comp_->setParams(p_); break;
+    case FX_PULSE: if (pulse_) pulse_->setParams(p_); break;
+    default: break;  // GRAIN reads p_ directly
     }
 }
 
@@ -769,6 +848,8 @@ void FxRack::process(float* L, float* R, int n, const float* mac) noexcept {
     if (n > 64) {
         n = 64;
     }
+    // the GRAIN buffer rolls all the time (8 s of the bus, whatever is selected)
+    grain_.write(L, R, n);
     const float target = bypass_ ? 0.f : 1.f;
     if (bypass_ && wet_ == 0.f) {
         return;
@@ -802,7 +883,18 @@ void FxRack::process(float* L, float* R, int n, const float* mac) noexcept {
     case FX_FILTER: filter_->process(L, R, wl, wr, n, mac); break;
     case FX_DRIVE: drive_->process(L, R, wl, wr, n); break;
     case FX_LOFI: lofi_->process(L, R, wl, wr, n); break;
-    default: comp_->process(L, R, wl, wr, n); break;
+    case FX_COMP: comp_->process(L, R, wl, wr, n); break;
+    case FX_PULSE: pulse_->process(L, R, wl, wr, n, bpm_); break;
+    default: {  // GRAIN
+        for (int i = 0; i < n; ++i) wl[i] = wr[i] = 0.f;
+        GrainCloud::Params gp;
+        gp.pos = clampf(p_[0] + gPosV_ / 5.f, 0.f, 1.f);
+        gp.size = clampf(p_[1] + gSizeV_ / 5.f, 0.f, 1.f);
+        gp.density = p_[2];
+        gp.spray = 0.35f;
+        grain_.render(wl, wr, n, gp, 1.f);
+        break;
+    }
     }
     const float mix = clampf(p_[3] + (type_ == FX_FILTER ? 0.f : macMean / 5.f), 0.f, 1.f);
     float w = wet_;
