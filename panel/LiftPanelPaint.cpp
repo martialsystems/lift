@@ -796,6 +796,7 @@ void LiftPanel::buildRopeScene() {
 
 // CableLayer::track: pointer, hovered jack, hovered label (rect + 3 px).
 void LiftPanel::trackRopes(juce::Point<float> dev, bool in) {
+    const ui::RopeScene before = scene_;
     scene_.ptrIn = in;
     scene_.ptr = dev;
     const JackId j = in ? jackAt(dev) : JackId{};
@@ -812,7 +813,21 @@ void LiftPanel::trackRopes(juce::Point<float> dev, bool in) {
             }
         }
     }
-    if (!cords_.empty()) {
+    if (cords_.empty()) {
+        return;
+    }
+    // wake the ropes only when the pointer (now or a moment ago), a hovered
+    // jack or label can touch one: a press on the pads leaves them asleep
+    bool near = scene_.hasJack != before.hasJack || scene_.hoverLabel != before.hoverLabel ||
+                (scene_.hasJack && scene_.jack != before.jack);
+    if (!near) {
+        const auto lv = levels(-1);
+        for (size_t n = 0; n < cords_.size() && !near; ++n) {
+            const auto b = ropeFor(n, lv).bounds().expanded(45.f);
+            near = (in && b.contains(dev)) || (before.ptrIn && b.contains(before.ptr));
+        }
+    }
+    if (near) {
         ropeIdle_ = 0;
         ropeAwake_ = true;
     }
@@ -858,19 +873,21 @@ void LiftPanel::paintCables(Graphics& g) {
     const bool moving = drag_.active && drag_.isMove && drag_.started;
     const auto lv = levels(moving ? drag_.n : -1);
     const bool aside = drag_.active && drag_.started;
+    // the cables stepping aside share one half-opacity layer (one composite a
+    // frame, not one per cable)
+    if (aside) {
+        g.beginTransparencyLayer(0.5f);
+    }
     for (size_t n = 0; n < cords_.size(); ++n) {
         if (moving && static_cast<int>(n) == drag_.n) {
             continue;
         }
         const Cord& c = cords_[n];
         const auto e = cordEnds(n, lv);
-        if (aside) {
-            g.beginTransparencyLayer(0.5f);
-        }
         drawCable(g, ropeFor(n, lv).path(), e.x1, e.y1, e.x2, e.y2, cableCloth(c.o), c.st, aside, ropeAwake_);
-        if (aside) {
-            g.endTransparencyLayer();
-        }
+    }
+    if (aside) {
+        g.endTransparencyLayer();
     }
 }
 

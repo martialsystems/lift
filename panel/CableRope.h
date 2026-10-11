@@ -59,10 +59,13 @@ public:
     float step(const RopeScene& sc) {
         const float seg = L_ / (N - 1);
         float mv = 0.f;
+        // BUSHIDO's damping while it moves; once it only sways (under ~0.4 px a
+        // step) it is damped harder, so a rope comes to rest in well under a
+        // second instead of swinging on for seconds
+        const float damp = lastMv_ < 0.4f ? 0.9f : 0.985f;
         for (int i = 1; i < N - 1; ++i) {
             const auto v = p_[i];
-            const float nx = v.x + (v.x - q_[i].x) * 0.985f, ny = v.y + (v.y - q_[i].y) * 0.985f + 0.45f;
-            mv = std::fmax(mv, std::fabs(nx - q_[i].x) + std::fabs(ny - q_[i].y));
+            const float nx = v.x + (v.x - q_[i].x) * damp, ny = v.y + (v.y - q_[i].y) * damp + 0.45f;
             q_[i] = v;
             p_[i] = {nx, ny};
         }
@@ -83,6 +86,12 @@ public:
                 push(p_[i], sc);
             }
         }
+        // how far it really moved this step (after the constraints and the
+        // floor: a cable resting on the brand line is still, gravity or not)
+        for (int i = 1; i < N - 1; ++i) {
+            mv = std::fmax(mv, std::fabs(p_[i].x - q_[i].x) + std::fabs(p_[i].y - q_[i].y));
+        }
+        lastMv_ = mv;
         return mv;
     }
 
@@ -155,6 +164,7 @@ private:
     std::array<juce::Point<float>, N> p_{}, q_{};
     juce::Point<float> a_, b_;
     float L_ = 0.f;
+    float lastMv_ = 1.f;
     bool init_ = false;
 };
 
