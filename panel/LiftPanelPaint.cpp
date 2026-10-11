@@ -573,9 +573,6 @@ void drawEncoder(Graphics& g, int fn, float v, juce::Point<float> c, bool down) 
 
 void LiftPanel::paintMemKeys(Graphics& g) {
     static const char* labels[10] = {"LIFT", "LOOP", "SHIFT", "REV", "DROP", "REC", "OCT \xe2\x88\x92", "PLAY", "OCT +", "STOP"};
-    if (shiftAmt_ > 0.f) {
-        paintShiftBloom(g, memRect(kShiftSlot), shiftAmt_ * shiftAmt_ * (3.f - 2.f * shiftAmt_));
-    }
     for (int k = 0; k < 10; ++k) {
         const int f = MEM_FN[k];
         const auto c = encCentre(k);

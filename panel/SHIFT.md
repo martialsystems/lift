@@ -12,9 +12,9 @@ its label only (no icon).
   existing job (moving knob focus). Shift already meant "fine" for knob drags,
   the wheel and the arrow keys, so holding it for the layer agrees with that.
 
-While shift is active, the SHIFT pad glows warm red-orange from underneath
-(about 120 ms fade in and out), the screen shows the legend, and knobs turn
-fine (drag, wheel and arrow keys).
+While shift is active, the SHIFT encoder's status LED is on, the screen shows
+the legend (about 120 ms fade in and out), and knobs turn fine (drag, wheel
+and arrow keys).
 
 ## Map
 

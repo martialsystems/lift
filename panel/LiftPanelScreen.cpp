@@ -294,7 +294,7 @@ void LiftPanel::advance(double dtD) {
     an_.lastCords = cords_.size();
     busy = busy || view == 5;
 
-    // shift: ~120 ms fade for the pad light and the screen legend
+    // shift: ~120 ms fade for the screen legend (the SHIFT encoder LED is binary)
     {
         const float target = shiftActive() ? 1.f : 0.f;
         const float before = shiftAmt_;
@@ -306,7 +306,6 @@ void LiftPanel::advance(double dtD) {
             shiftAmt_ = juce::jmax(target, shiftAmt_ - dt / 0.12f);
         }
         if (shiftAmt_ != before) {
-            repaint(shiftKeyArea());
             busy = true;
         }
         busy = busy || (shiftAmt_ > 0.f && ((t_ - shiftOnT_) < 1.0 || (t_ - lastFnT_) < 1.5));

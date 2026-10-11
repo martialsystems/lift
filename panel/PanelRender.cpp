@@ -256,9 +256,6 @@ juce::uint64 LiftPanel::partSig(int p) const {
         const bool lit = (f == 1 && loop_) || (f == 2 && shiftActive()) || (f == 3 && rev_) || (f == 5 && rec_) || (f == 7 && playing_);
         h = mix(h, (pressedMem_ == p ? 1 : 0) | (lit ? 2 : 0));
         h = mix(h, fbits(mk_[static_cast<size_t>(p)]));
-        if (p == kShiftSlot) {
-            h = mix(h, fbits(shiftAmt_));
-        }
         return h;
     }
     p -= 10;

@@ -288,7 +288,6 @@ private:
     void markFn(int kind, int idx);
     int midiOf(int n) const { return 48 + 12 * oct_ + n + transpose_; }
     void paintShiftOverlay(juce::Graphics& g, float amt);
-    void paintShiftBloom(juce::Graphics& g, juce::Rectangle<float> key, float amt);
     juce::Rectangle<int> shiftKeyArea() const;
 
     double lastTick_ = 0.0;

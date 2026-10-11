@@ -3,8 +3,8 @@
 // The shift layer: SHIFT on the keypad (tap = latch, press and hold =
 // momentary) or the computer's Shift key (momentary). While shifted, the 14
 // white keys and 10 black buttons run per-mode functions, four keypad keys
-// run combos, knobs turn fine, the screen shows a legend and the SHIFT pad
-// glows from underneath. Map and status (real vs placeholder): panel/SHIFT.md.
+// run combos, knobs turn fine and the screen shows a legend. Map and status
+// (real vs placeholder): panel/SHIFT.md.
 
 #include "LiftPanel.h"
 
@@ -115,8 +115,8 @@ void LiftPanel::sendLoop() {
 }
 
 juce::Rectangle<int> LiftPanel::shiftKeyArea() const {
-    // the SHIFT pad and the sheet its light spills onto (canvas pixels)
-    return memRect(kShiftSlot).expanded(44.f, 40.f).translated(kDevX, kDevY).getSmallestIntegerContainer();
+    // the SHIFT encoder and its status LED (canvas pixels)
+    return memRect(kShiftSlot).expanded(6.f).withTrimmedBottom(-24.f).translated(kDevX, kDevY).getSmallestIntegerContainer();
 }
 
 // ------------------------------------------------------------------ legend
@@ -330,29 +330,6 @@ void LiftPanel::shiftCombo(int fn) {
 }
 
 // ------------------------------------------------------------------ drawing
-
-// Warm light from under the SHIFT pad: a diffuse bloom on the black sheet
-// around the pad plus light leaking through the gap under its edges.
-void LiftPanel::paintShiftBloom(Graphics& g, Rectangle<float> r, float a) {
-    // Drawn after the keys, on the sheet and the key surrounds only: the pad
-    // faces themselves stay unlit.
-    const Rectangle<float> M(52.f, 706.f, 616.f, 134.f);
-    Path clip = rrect(M, 6.f);
-    for (int k = 0; k < 10; ++k) {
-        clip.addRoundedRectangle(memRect(k), 5.f);
-    }
-    clip.setUsingNonZeroWinding(false);
-    Graphics::ScopedSaveState s(g);
-    g.reduceClipRegion(clip);
-    // stacked soft rings: a cheap, smooth falloff (dense near the pad, gone ~30 px out)
-    constexpr int kRings = 28;
-    for (int i = kRings; i >= 0; --i) {
-        const float u = static_cast<float>(i) / kRings;
-        const Colour c = hex(0xff8a3c).interpolatedWith(hex(0xff3010), u);
-        g.setColour(c.withAlpha(0.11f * a * (1.f - u) * (1.f - u)));
-        g.fillRoundedRectangle(r.expanded(2.f + 26.f * u), 7.f + 14.f * u);
-    }
-}
 
 void LiftPanel::paintShiftOverlay(Graphics& g, float amtLin) {
     const float a = amtLin * amtLin * (3.f - 2.f * amtLin);  // smoothstep
