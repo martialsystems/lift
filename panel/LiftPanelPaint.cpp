@@ -282,11 +282,11 @@ void LiftPanel::paintBrand(Graphics& g) {
     float lx = 664.f - total * 0.5f;
     Path tri;
     tri.addTriangle(lx, cy + 9.5f, lx + 22.f, cy + 9.5f, lx + 11.f, cy - 9.5f);
-    fill(g, tri, hex(BLU));
+    fill(g, tri, hex(YEL));  // v3.1: yellow triangle, blue dot
     lx += 34.f;
     text(g, "LIFT", jost(700, 34.f, 0.3f), ink, {lx, cy - 17.f, liftW + 20.f, 34.f}, Justification::centredLeft);
     lx += liftW + 12.f;
-    fill(g, circle(lx + 9.5f, cy, 9.5f), hex(RED));
+    fill(g, circle(lx + 9.5f, cy, 9.5f), hex(BLU));
 
     const char types[5] = {'p', 'g', 'c', 'm', 'a'};
     float w = 0.f;

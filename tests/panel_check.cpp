@@ -273,6 +273,19 @@ int main(int argc, char** argv) {
         });
         return bad == 0 ? 0 : 1;
     }
+    if (argc > 2 && juce::String(argv[1]) == "--panel-shot") {
+        // the full panel at 2x, default state (TAPE screen, the default patch)
+        Rig r;
+        r.step(0.5);
+        r.panel->advance(1.0);
+        const juce::Image img = r.panel->createComponentSnapshot(r.panel->getLocalBounds(), true, 2.0f);
+        const juce::File f(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]));
+        f.deleteFile();
+        juce::FileOutputStream os(f);
+        juce::PNGImageFormat().writeImageToStream(img, os);
+        std::printf("wrote %s (%d x %d)\n", f.getFullPathName().toRawUTF8(), img.getWidth(), img.getHeight());
+        return 0;
+    }
     if (argc > 1 && juce::String(argv[1]) == "--ui-bench") {
         return runUiBench(argc > 2 ? juce::String(argv[2]).getFloatValue() : 2.f);
     }
