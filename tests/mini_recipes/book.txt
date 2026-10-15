@@ -509,7 +509,6 @@ recipe: SHIFT + REC lists the sources; yellow picks, press opens
   expect source == MASTER
 
 recipe: A fast turn moves the source list by every detent
-  known: lists (sources, radio TUNE and PRESET) only use the turn's direction; a fast Pico turn sends several detents at once
   button SHIFT down
   button REC tap
   button SHIFT up

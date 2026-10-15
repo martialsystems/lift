@@ -168,17 +168,17 @@ void MiniUi::key(int k, bool down) {
 void MiniUi::turn(int e, int detents) {
     const bool s = shift_.turn(e, now());
     if (sourcesOpen_) {
-        if (e == 0) sourceSel_ = jlimit(0, kNumSources - 1, sourceSel_ + (detents > 0 ? 1 : -1));
+        if (e == 0) sourceSel_ = jlimit(0, kNumSources - 1, sourceSel_ + detents);   // every detent counts
         return;
     }
     if (mode_ == Radio) {
         auto* r = proc_.radio();
         const int n = r != nullptr ? int(r->list().stations.size()) : 0;
         if (e == 0 && n > 0) {          // TUNE: step through the station list
-            const int st = (jmax(0, r->station()) + (detents > 0 ? 1 : n - 1)) % n;
+            const int st = ((jmax(0, r->station()) + detents) % n + n) % n;
             proc_.setRadioStation(st);
         } else if (e == 1 && r != nullptr) {  // PRESET 1-8
-            radioKnob_[1] = jlimit(0.f, 7.f, radioKnob_[1] + (detents > 0 ? 1.f : -1.f));
+            radioKnob_[1] = jlimit(0.f, 7.f, radioKnob_[1] + float(detents));
             const int st = r->list().presets[size_t(radioKnob_[1])];
             if (st >= 0) proc_.setRadioStation(st);
         } else if (e >= 2 && r != nullptr) {
