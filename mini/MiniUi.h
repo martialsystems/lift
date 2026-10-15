@@ -46,6 +46,7 @@ private:
     void timerCallback() override;
     void button(Btn b, bool down);
     void key(int k, bool down);
+    void releaseHeldNotes();
     void turn(int enc, int detents);
     void push(int enc, bool down);
     int screenIndex() const;                  // LiftProcessor knob screen for the mode

@@ -196,7 +196,6 @@ recipe: Changing octave while a key is held leaves no stuck note
   expect voices == 0
 
 recipe: Changing mode while a key is held leaves no stuck note
-  known: key-up in DRUM sends nothing, so a SYNTH note started before the switch keeps ringing
   button SYNTH tap
   key w1 down
   wait 100

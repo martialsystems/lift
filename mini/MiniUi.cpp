@@ -87,6 +87,7 @@ void MiniUi::button(Btn b, bool down) {
     switch (b) {
         case Btn::Synth: case Btn::Drum: case Btn::Tape: case Btn::Mix: {
             const auto m = Mode(int(b));
+            if (m != mode_) releaseHeldNotes();   // the old mode's notes stop now
             page_ = (m == mode_) ? (page_ + 1) % 4 : 0;   // tap again: next page
             mode_ = m;
             sourcesOpen_ = false;
@@ -118,21 +119,27 @@ void MiniUi::button(Btn b, bool down) {
     }
 }
 
+void MiniUi::releaseHeldNotes() {
+    for (auto& n : sounding_)
+        if (n >= 0) { proc_.send(lift::Cmd::NoteOff, n, 100); n = -1; }
+}
+
 void MiniUi::key(int k, bool down) {
-    if (down) shift_.used();
+    if (k < 0 || k >= 24) return;
+    // key-up releases the note this key started, whatever the octave or mode
+    // is now (a SYNTH note held into DRUM still stops on key-up)
+    if (!down) {
+        if (sounding_[k] >= 0) proc_.send(lift::Cmd::NoteOff, sounding_[k], 100);
+        sounding_[k] = -1;
+        return;
+    }
+    shift_.used();
     if (sh() && down && k < 8) { proc_.saveSlotAsync(k + 1, nullptr); say("SAVED SLOT " + String(k + 1)); return; }
     if (mode_ == Drum) {
         if (down) {
             if (proc_.sliceKitLoaded()) proc_.send(lift::Cmd::SliceHit, k, 110);
             else proc_.send(lift::Cmd::DrumHit, k % lift::eng::kDrumVoices, 110);
         }
-        return;
-    }
-    // key-up releases the note this key started, whatever the octave is now
-    if (k < 0 || k >= 24) return;
-    if (!down) {
-        if (sounding_[k] >= 0) proc_.send(lift::Cmd::NoteOff, sounding_[k], 100);
-        sounding_[k] = -1;
         return;
     }
     if (sounding_[k] >= 0) proc_.send(lift::Cmd::NoteOff, sounding_[k], 100);
@@ -180,6 +187,7 @@ void MiniUi::push(int e, bool down) {
             sourcesOpen_ = false;
             proc_.setComputerAudio(source_ == 2);
             if (source_ == 1) {
+                releaseHeldNotes();
                 mode_ = Radio;
                 auto* r = proc_.radio();
                 proc_.setRadioStation(r != nullptr && r->station() >= 0 ? r->station() : 0);
