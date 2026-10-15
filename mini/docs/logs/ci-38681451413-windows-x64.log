@@ -1,0 +1,13 @@
+ * [new ref]         ddc4fac7bfce32d1e7a7eb32b8426f2578f7c696 -> origin/mini-pi
+  LiftApp_rc_lib.vcxproj -> D:\a\lift\lift\build\LiftApp_rc_lib.dir\Release\LiftApp_rc_lib.lib
+  lift_fonts.vcxproj -> D:\a\lift\lift\build\Release\lift_fonts.lib
+  lift_art.vcxproj -> D:\a\lift\lift\build\Release\lift_art.lib
+  LiftApp.vcxproj -> D:\a\lift\lift\build\LiftApp_artefacts\Release\LIFT_SharedCode.lib
+  LiftApp_Standalone.vcxproj -> D:\a\lift\lift\build\LiftApp_artefacts\Release\Standalone\LIFT.exe
+  LiftApp_rc_lib.vcxproj -> D:\a\lift\lift\build\LiftApp_rc_lib.dir\Release\LiftApp_rc_lib.lib
+  lift_art.vcxproj -> D:\a\lift\lift\build\Release\lift_art.lib
+  lift_fonts.vcxproj -> D:\a\lift\lift\build\Release\lift_fonts.lib
+  LiftApp.vcxproj -> D:\a\lift\lift\build\LiftApp_artefacts\Release\LIFT_SharedCode.lib
+  LiftApp_vst3_helper.vcxproj -> D:\a\lift\lift\build\Release\LiftApp_vst3_helper.exe
+  LiftApp_VST3.vcxproj -> D:\a\lift\lift\build\LiftApp_artefacts\Release\VST3\LIFT.vst3\Contents\x86_64-win\LIFT.vst3
+(node:1228) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.

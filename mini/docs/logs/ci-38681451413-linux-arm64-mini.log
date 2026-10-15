@@ -1,0 +1,60 @@
+##[group]GITHUB_TOKEN Permissions
+PASS  SHIFT: on while held
+PASS  SHIFT: tap = cancel, then off
+PASS  SHIFT: double tap latches (no second cancel)
+PASS  SHIFT: tap while latched unlatches, no cancel
+PASS  SHIFT: two taps far apart = two cancels, no latch
+PASS  SHIFT+turn: shifted
+PASS  SHIFT+turn: release is not a tap
+PASS  SHIFT released mid-turn: same encoder stays shifted inside the grace
+PASS  SHIFT released mid-turn: grace extends while it keeps turning
+PASS  SHIFT released mid-turn: other encoders are un-shifted at once
+PASS  SHIFT released mid-turn: grace ends when the turning stops
+PASS  SHIFT+key: release is not a cancel
+PASS  SHIFT: long press alone does nothing
+PASS  SHIFT: latched
+PASS  SHIFT: mode key while latched opens the mode un-shifted
+PASS  speed knob: centre band = stop
+PASS  speed knob: ends = -4x / +4x
+PASS  speed knob: monotonic, finite, through zero
+PASS  speed knob: 1x snaps
+PASS  speed knob: small just past the stop band
+PASS  speed through zero: output finite (no divide by speed)
+PASS  speed through zero: direction flips only near standstill (0.000000)
+PASS  speed through zero: 0 holds the tape still while playing
+PASS  speed jump +1 -> -1: glides to a stop, then reverses
+PASS  loop crossfade, reverse: wet side reads backwards into loopEnd
+PASS  loop crossfade, reverse: continuous across the wrap
+PASS  loop crossfade, forward: continuous across the wrap
+PASS  queue: overflow counted (1978)
+PASS  queue: no press dropped, last one applied in order
+PASS  capture: capacity excludes the guard
+PASS  capture: reads while the writer runs are never torn (torn frames zeroed: 0)
+PASS  jobs: a 20 s LIFT is spread over callbacks
+PASS  jobs: LIFT done, clip is the loop
+PASS  jobs: LIFT copied exactly
+PASS  jobs: DROP clip then UNDO in one go restores the track exactly (order kept)
+PASS  computer audio: fake capture arrives at 48 kHz through the ring (COMPUTER AUDIO  FAKE)
+PASS  computer audio: the audio-thread read never blocks (0.005000 ms)
+PASS  computer audio: a refused backend = silence + a message (COMPUTER AUDIO: PERMISSION DENIED)
+PASS  computer audio: never sent to the output, no feedback (tap leaves LIFT out: adds)
+PASS  computer audio: LIFT keeps it from the listen buffer (tap leaves LIFT out: adds), rms 0.123219
+PASS  computer audio: never sent to the output, no feedback (loopback hears LIFT: replaces)
+PASS  computer audio: LIFT keeps it from the listen buffer (loopback hears LIFT: replaces), rms 0.120704
+BENCH  idle (playing)               worst   0.208 ms  (budget 5.33 ms)
+BENCH  LIFT (60 s loop)             worst   0.224 ms  (budget 5.33 ms)
+BENCH  DROP (60 s clip)             worst   0.251 ms  (budget 5.33 ms)
+BENCH  UNDO DROP                    worst   0.232 ms  (budget 5.33 ms)
+BENCH  SHIFT+LIFT (4 tracks)        worst   0.230 ms  (budget 5.33 ms)
+BENCH  DROP clip to loop (30 s)     worst   0.266 ms  (budget 5.33 ms)
+BENCH  UNDO (clip drop)             worst   0.252 ms  (budget 5.33 ms)
+BENCH  LIFT x3 + DROP x3 burst      worst   0.239 ms  (budget 5.33 ms)
+PASS  callback under half the block budget: idle (playing)
+PASS  callback under half the block budget: LIFT (60 s loop)
+PASS  callback under half the block budget: DROP (60 s clip)
+PASS  callback under half the block budget: UNDO DROP
+PASS  callback under half the block budget: SHIFT+LIFT (4 tracks)
+PASS  callback under half the block budget: DROP clip to loop (30 s)
+PASS  callback under half the block budget: UNDO (clip drop)
+PASS  callback under half the block budget: LIFT x3 + DROP x3 burst
+ALL PASS

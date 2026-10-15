@@ -87,7 +87,7 @@ SHIFT is a small state machine (`mini/ShiftState.h`). It is tested in `tests/min
 
 | You do | What happens |
 |---|---|
-| Hold SHIFT | SHIFT is on while held. |
+| Keep SHIFT pressed | SHIFT is on until you let go. |
 | Tap SHIFT (under 300 ms, nothing else touched) | Cancel / back. It closes the source list or clears a message. |
 | Double-tap (second tap within 350 ms) | SHIFT latches on. The first tap's cancel has already happened, which is harmless. The status bar shows SHIFT LOCK. |
 | Tap while latched | Unlatches. No cancel. |

@@ -1,0 +1,28 @@
+[ 15%] Built target lift_fonts
+[ 15%] Built target lift_art
+[ 84%] Built target LiftApp
+[100%] Built target LiftApp_Standalone
+[  3%] Built target lift_art
+[ 14%] Built target lift_fonts
+[ 78%] Built target LiftApp
+[ 82%] Built target LiftApp_vst3_helper
+[100%] Built target LiftApp_VST3
+[  7%] Built target lift_art
+[ 14%] Built target lift_fonts
+[ 81%] Built target LiftApp
+[100%] Built target LiftApp_AU
+[  4%] Built target lift_art
+[ 16%] Built target lift_fonts
+[100%] Built target lift_panel_check
+[ 75%] Built target lift_engine
+[100%] Built target lift_engine_check
+[ 75%] Built target lift_engine
+[100%] Built target lift_resample_check
+[  9%] Built target lift_art
+[ 18%] Built target lift_fonts
+[100%] Built target lift_mini_check
+1/4 Test #1: lift_engine_check ................   Passed   45.97 sec
+2/4 Test #2: lift_resample_check ..............   Passed    4.71 sec
+3/4 Test #3: lift_panel_check .................   Passed    7.69 sec
+4/4 Test #4: lift_mini_check ..................   Passed   34.07 sec
+100% tests passed out of 4

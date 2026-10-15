@@ -327,7 +327,7 @@ def _text_files(root: Path) -> list[Path]:
         if not base.is_dir():
             continue
         for path in sorted(base.rglob("*")):
-            if path.is_file() and path.suffix not in {".wav", ".aif", ".aiff", ".flac"}:
+            if path.is_file() and path.suffix not in {".wav", ".aif", ".aiff", ".flac", ".png"}:
                 files.append(path)
     return files
 

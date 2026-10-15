@@ -1,0 +1,8 @@
+BENCH  idle (playing)               worst   0.196 ms  (budget 5.33 ms)
+BENCH  LIFT (60 s loop)             worst   0.210 ms  (budget 5.33 ms)
+BENCH  DROP (60 s clip)             worst   0.262 ms  (budget 5.33 ms)
+BENCH  UNDO DROP                    worst   0.220 ms  (budget 5.33 ms)
+BENCH  SHIFT+LIFT (4 tracks)        worst   0.229 ms  (budget 5.33 ms)
+BENCH  DROP clip to loop (30 s)     worst   0.251 ms  (budget 5.33 ms)
+BENCH  UNDO (clip drop)             worst   0.231 ms  (budget 5.33 ms)
+BENCH  LIFT x3 + DROP x3 burst      worst   0.227 ms  (budget 5.33 ms)

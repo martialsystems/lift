@@ -1,0 +1,409 @@
+UpdateCTestConfiguration  from :/workspace/mini-build/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/workspace/mini-build/DartConfiguration.tcl
+Test project /workspace/mini-build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: lift_engine_check
+
+1: Test command: /workspace/mini-build/lift_engine_check
+1: Working Directory: /workspace/mini-build
+1: Test timeout computed to be: 10000000
+1: PASS  scene is audible (rms 0.137031)
+1: PASS  B PITCH -> PITCH changes the audio (-1.844925 dB vs the scene)
+1: PASS  B GATE -> GATE + B PITCH -> PITCH changes the audio (1.457795 dB vs the scene)
+1: PASS  DRUM -> SLICE changes the audio (2.310706 dB vs the scene)
+1: PASS  B GATE -> CLK IN changes the audio (-1.536998 dB vs the scene)
+1: PASS  B GATE -> RST IN changes the audio (6.322164 dB vs the scene)
+1: PASS  RESET -> RST IN + CLOCK -> CLK IN changes the audio (-5.511318 dB vs the scene)
+1: PASS  B GATE -> REVERSE changes the audio (-1.676959 dB vs the scene)
+1: PASS  HEAD 2 -> SPEED changes the audio (-3.669952 dB vs the scene)
+1: PASS  FX OUT -> BIAS changes the audio (-20.128068 dB vs the scene)
+1: PASS  HEAD 1 -> SCRUB changes the audio (-3.285171 dB vs the scene)
+1: PASS  FX OUT -> AUDIO L changes the audio (1.085100 dB vs the scene)
+1: PASS  pin LFO -> CUTOFF changes the audio (-3.561448 dB vs the scene)
+1: PASS  pin LFO -> FM IDX changes the audio (-2.791709 dB vs the scene)
+1: PASS  pin LFO -> PITCH (+50%) changes the audio (-2.445004 dB vs the scene)
+1: PASS  pin ENV -> CUTOFF changes the audio (-5.508814 dB vs the scene)
+1: PASS  pin ENV 2 -> CUTOFF (-100%) changes the audio (-4.694225 dB vs the scene)
+1: PASS  pin S&H -> PITCH changes the audio (-2.609655 dB vs the scene)
+1: PASS  pin LFO 2 -> CUTOFF changes the audio (-9.057484 dB vs the scene)
+1: PASS  pin RANDOM -> CUTOFF changes the audio (-5.497607 dB vs the scene)
+1: PASS  pin NOISE -> FM IDX changes the audio (-3.381842 dB vs the scene)
+1: PASS  pin LFO -> FX MAC changes the audio (-7.078474 dB vs the scene)
+1: PASS  pin LFO -> SPEED changes the audio (-0.469341 dB vs the scene)
+1: PASS  pin LFO -> BIAS changes the audio (-13.490732 dB vs the scene)
+1: PASS  pin LFO -> RESO changes the audio (-13.623881 dB vs the scene)
+1: PASS  pin LFO -> WAVE changes the audio (-5.050657 dB vs the scene)
+1: PASS  pin LFO -> DECAY changes the audio (-21.567719 dB vs the scene)
+1: PASS  pin LFO -> LEVEL (-100%) changes the audio (-18.690610 dB vs the scene)
+1: PASS  pin LFO -> SCRUB changes the audio (0.173427 dB vs the scene)
+1: PASS  pin QUANT -> PITCH changes the audio (-3.813423 dB vs the scene)
+1: PASS  pin STEP -> PITCH + pin PULSE -> GATE changes the audio (1.457795 dB vs the scene)
+1: PASS  pin EOC -> CUTOFF changes the audio (-25.506111 dB vs the scene)
+1: PASS  pin VEL -> CUTOFF changes the audio (-5.656591 dB vs the scene)
+1: PASS  B PITCH -> SLEW + pin SLEW -> PITCH changes the audio (-2.811644 dB vs the scene)
+1: PASS  CLOCK -> VCA IN + pin VCA -> CUTOFF changes the audio (-8.648137 dB vs the scene)
+1: PASS  CLOCK -> S&H + pin S&H -> CUTOFF changes the audio (-5.489613 dB vs the scene)
+1: PASS  B PITCH -> QUANT + pin QUANT -> PITCH changes the audio (-1.844925 dB vs the scene)
+1: PASS  FX OUT -> AUDIO L + pin FOLLOW -> CUTOFF (-100%) changes the audio (2.030682 dB vs the scene)
+1: PASS  A PITCH -> PITCH is a unity wire (the normal)
+1: PASS  A GATE -> GATE alone is the normal (keys still play)
+1: PASS  RADIO: placeholder, silent (by design)
+1: PASS  pin PULSE -> REC presses REC every step (16 in 2 s)
+1: PASS  B GATE -> REC jack presses REC (16 in 2 s)
+1: PASS  B GATE -> GATE takes over the synth's triggers
+1: PASS  while GATE is patched a key alone does not play the synth
+1: PASS  A GATE -> GATE alone is the normal: keys play
+1: PASS  QUANT MAJOR: 7 notes per octave
+1: PASS  QUANT MINOR: 7 notes per octave
+1: PASS  QUANT MAJ PENTA: 5 notes per octave
+1: PASS  QUANT MIN PENTA: 5 notes per octave
+1: PASS  QUANT CHROMATIC: 12 notes per octave
+1: PASS  QUANT major: C# snaps to C or D
+1: PASS  QUANT minor keeps the minor third
+1: PASS  feedback HEAD 1 -> SPEED, T1 armed (true loop): 1 tagged (want 1), peak 0.605498, end/start rms x0.904485
+1: PASS  feedback HEAD 2 -> SPEED, T1 armed (loop 2 plays loop 1: no loop): 0 tagged (want 0), peak 0.642821, end/start rms x0.886154
+1: PASS  feedback HEAD 2 -> SPEED, T2 armed (true loop): 1 tagged (want 1), peak 0.642821, end/start rms x0.884292
+1: PASS  feedback HEAD 1 -> BIAS (through the tape's delay, no instant loop): 0 tagged (want 0), peak 0.637597, end/start rms x0.886965
+1: PASS  feedback MIX L -> AUDIO L (mixer howl): 1 tagged (want 1), peak 3.628204, end/start rms x2.801800
+1: PASS  feedback FX OUT -> VCA IN + pin VCA -> FX MAC: 1 tagged (want 1), peak 0.988038, end/start rms x0.728821
+1: PASS  feedback pin VCA -> VCA with VCA IN patched: 1 tagged (want 1), peak 0.642821, end/start rms x0.884292
+1: PASS  feedback HEAD 1 -> VCA -> SPEED (pin closes it): 1 tagged (want 1), peak 0.605498, end/start rms x0.904489
+1: PASS  feedback HEAD 1 -> SPEED, HEAD 2 -> BIAS, FX OUT -> AUDIO L + pin FOLLOW -> FX MAC: 2 tagged (want 2), peak 3.161033, end/start rms x1.029891
+1: PASS  KIT 1 (808) -40 dB: KICK 607ms SNARE 104ms CLAP 174ms CLAVE 44ms SHAKER 45ms COWBELL 228ms CL HAT 81ms OP HAT 552ms CYMBAL 734ms LO TOM 322ms MID TOM 279ms HI TOM 245ms
+1: PASS  KIT 2 (909) -40 dB: KICK 2 493ms SNARE 273ms CLAP 127ms CLAVE 40ms SHAKER 47ms COWBELL 201ms CL HAT 102ms OP HAT 493ms CYMBAL 1264ms LO TOM 523ms MID TOM 317ms HI TOM 376ms
+1: PASS  808 kick DECAY knob: 83 ms to 3366 ms
+1: PASS  sequencer at 120 BPM: 160 steps over 20 s, worst error 1.000000 samples (no drift)
+1: PASS  sequencer at 97 BPM: 130 steps over 20 s, worst error 1.000000 samples (no drift)
+1: PASS  sequencer at 174 BPM: 232 steps over 20 s, worst error 1.000000 samples (no drift)
+1: PASS  LOOM note 72 (523 Hz): worst non-harmonic spike -57 dB
+1: PASS  LOOM note 96 (2093 Hz): worst non-harmonic spike -42 dB
+1: PASS  BEND note 72 (523 Hz): worst non-harmonic spike -62 dB
+1: PASS  BEND note 96 (2093 Hz): worst non-harmonic spike -62 dB
+1: PASS  FOLD note 72 (523 Hz): worst non-harmonic spike -60 dB
+1: PASS  FOLD note 96 (2093 Hz): worst non-harmonic spike -40 dB
+1: PASS  RATIO note 72 (523 Hz): worst non-harmonic spike -52 dB
+1: PASS  RATIO note 96 (2093 Hz): worst non-harmonic spike -58 dB
+1: PASS  SPRING (DECAY 50 %): an impulse rings 1940 ms to -40 dB (energy), no NaN
+1: PASS  FX SPRING: changes the sound (-4 dB vs dry), peak 0.62, finite
+1: PASS  FX REVERB: changes the sound (-7 dB vs dry), peak 0.44, finite
+1: PASS  FX DELAY: changes the sound (-8 dB vs dry), peak 0.42, finite
+1: PASS  FX CHORUS: changes the sound (-2 dB vs dry), peak 0.39, finite
+1: PASS  FX PHASER: changes the sound (-2 dB vs dry), peak 0.51, finite
+1: PASS  FX FILTER: changes the sound (-5 dB vs dry), peak 0.59, finite
+1: PASS  FX DRIVE: changes the sound (1 dB vs dry), peak 0.52, finite
+1: PASS  FX LOFI: changes the sound (-11 dB vs dry), peak 0.41, finite
+1: PASS  FX COMP: changes the sound (-17 dB vs dry), peak 0.27, finite
+1: PASS  FX GRAIN: changes the sound (-3 dB vs dry), peak 0.26, finite
+1: PASS  FX PULSE: changes the sound (-3 dB vs dry), peak 0.37, finite
+1: PASS  COMP: an 18 dB loud/quiet swing comes out 2.25 dB apart
+1: PASS  DRIVE (ADAA): 3.1 kHz driven hard, worst alias spike -57 dB (at 18499 Hz)
+1: PASS  GRAIN FX buffer is a fixed 8 s (384000 frames)
+1: INFO  GRAIN POS 0: 220 Hz 0.0003, 440 Hz 0.0564
+1: PASS  GRAIN POS near 0 reads the newest audio in its own buffer (440 Hz)
+1: INFO  GRAIN G POS +4.5 V: 220 Hz 0.0454, 440 Hz 0.0010
+1: PASS  G POS reaches back through the 8 s buffer (220 Hz, 7 s ago)
+1: INFO  PULSE 1/16 at 120 BPM: 7 gate openings in 1 s
+1: INFO  GRAIN engine, C5 over a 220 Hz loop: 440 Hz 0.0119, 220 Hz 0.0005
+1: PASS  GRAIN engine (key 8) plays grains of the loop, pitched by the key
+1: PASS  PULSE gates on the tempo grid (8 per second at 1/16, 120 BPM)
+1: INFO  CPU (% of one core at 48 kHz) per synth voice: LOOM 1.30 BEND 0.39 FOLD 0.25 RATIO 0.40 WIRE 0.05 SWARM 0.08 SPOOL 0.06 GRAIN 0.12
+1: INFO  CPU drums (all 14 voices retriggered): 10.30 %; whole instrument (808 pattern, spring, no notes): 7.92 %
+1: INFO  CPU per effect: SPRING 2.88% REVERB 0.21% DELAY 0.17% CHORUS 0.57% PHASER 0.23% FILTER 0.13% DRIVE 0.70% LOFI 0.09% COMP 0.10% GRAIN 0.41% PULSE 0.07%
+1: ALL PASS (0 failures)
+1/4 Test #1: lift_engine_check ................   Passed   41.55 sec
+test 2
+    Start 2: lift_resample_check
+
+2: Test command: /workspace/mini-build/lift_resample_check
+2: Working Directory: /workspace/mini-build
+2: Test timeout computed to be: 10000000
+2: PASS  1 kHz 0 dBFS one channel = -3.01 LUFS (-3.00)
+2: PASS  silence reads -inf
+2: PASS  true peak sees the inter-sample peak (1.00 vs sample peak 0.707)
+2: PASS  trim from -30.00 dB: -16.42 LUFS, true peak -1.04 dBTP
+2: PASS  trim from -12.00 dB: -16.42 LUFS, true peak -1.04 dBTP
+2: PASS  trim from 0.00 dB: -16.42 LUFS, true peak -1.04 dBTP
+2: PASS  trim from 12.00 dB: -16.42 LUFS, true peak -1.04 dBTP
+2: PASS  5 x (process, keep): the level stays within 1 dB (worst 0.42 dB)
+2: PASS  capture ring: 70 s written, the last second reads back exactly
+2: PASS  capture ring holds 60 s
+2: PASS  pre-keep meter (100 ms blocks) -8.97 = measured -8.97 LUFS
+2: PASS  HIT default: starts at the onset (0 frames) on a zero crossing
+2: PASS  HIT default: covers the decay, not the silence (11980 frames)
+2: PASS  LOOP default: the whole loop
+2: PASS  the cut has the selection's length and starts from silence
+2: PASS  snap BEAT rounds to the beat
+2: PASS  snap HIT finds the next hit
+2: PASS  master safety limiter: +12 dB in, peak -1.00 dBFS out, no NaN
+2: PASS  the limiter is transparent below the ceiling (one block late)
+2: PASS  a clip voice at rate 2 plays in half the time (2432 frames)
+2: PASS  synth engines dry: 0:-17.00 1:-17.00 2:-17.00 3:-17.01 4:-17.00 5:-17.00 6:-17.00 LUFS (target -17.00, worst 0.01 LU off)
+2: PASS  drum kits dry: 0:-17.00 1:-17.00 2:-17.00 3:-17.00 4:-17.00 5:-17.00 6:-17.00 7:-17.00 LUFS (target -17.00, worst 0.00 LU off)
+2: ALL PASS (0 failures)
+2/4 Test #2: lift_resample_check ..............   Passed    3.88 sec
+test 3
+    Start 3: lift_panel_check
+
+3: Test command: /workspace/mini-build/lift_panel_check_artefacts/Release/lift_panel_check
+3: Working Directory: /workspace/mini-build
+3: Environment variables: 
+3:  LIFT_RADIO_OFF=1
+3: Test timeout computed to be: 10000000
+3: -- screens
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_tape.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_synth.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_drum.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_mix.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_in.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_bay.png
+3: -- UI actions against the tape engine
+3: [PASS] TAPE screen, T1 armed
+3: [PASS] REC + PLAY records and the reels turn
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_tape_recording.png
+3: [PASS] STOP ramps the tape down and stops the transport
+3:   T1 printed rms 0.1554, 214-226 Hz amp 0.0573
+3: [PASS] the keyboard note was printed onto T1
+3: [PASS] seek returns the playhead to the top while stopped
+3:   T2 after DROP rms 0.0835
+3:   kept 1.95 s at -16.03 LUFS (in -16.53, trim +0.53 dB)
+3: [PASS] LIFT keeps what was heard, trimmed to the target
+3: [PASS] LIFT + DROP overdubs the kept sound onto T2
+3:   playback rms 0.2809, 220 Hz 0.0506, 300 Hz 0.0022, pos 48128
+3: [PASS] PLAY plays the takes back (220 Hz, finite)
+3: [PASS] tape counter follows the transport
+3: [PASS] default patch: three cables in the model
+3: -- screen motion
+3: [PASS] TAPE screen at rest is still
+3: [PASS] TAPE screen moves while the tape runs
+3: [PASS] reduced motion: idle SYNTH screen is still
+3: -- shift layer
+3: [PASS] keypad slot above STOP is SHIFT; a tap latches it
+3: [PASS] SHIFT + DROP with nothing heard keeps nothing (SHIFT stays latched)
+3:   loop 48000..144000
+3: [PASS] SHIFT + white 1/2 set loop in/out at the playhead (engine loop 1 s .. 3 s)
+3: [PASS] SHIFT + LOOP ends the loop at the playhead (1 s .. 2 s)
+3: [PASS] SHIFT + black 3 sets 2x speed in the engine
+3: [PASS] playback stays inside the shifted loop
+3: [PASS] SHIFT + black 1 sets 0.5x speed
+3: [PASS] SHIFT + STOP stops at once (no tape-stop ramp)
+3: [PASS] SHIFT + LIFT keeps the sum of all tracks (loop region, trimmed)
+3: [PASS] SHIFT + white 5 arms track 2
+3: [PASS] CLEAR asks before clearing
+3:   T2 at 1 s: 0.177 -> drop 0.155 -> undo 0.177
+3: [PASS] DROP overdubs the kept sum; UNDO restores the track
+3: [PASS] CLEAR on the second press clears only the armed track
+3: [PASS] tap SHIFT again releases the latch
+3: [PASS] holding the computer Shift key shifts
+3: [PASS] releasing it unshifts
+3: [PASS] SHIFT + white 6 on SYNTH sets octave +2 for the keyboard
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_shift_off.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_shift_on.png
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_slot_picker.png
+3: -- resample: keep, fast path, SELECT, one undo history
+3: [PASS] a pin joins the history
+3:   LIFT kept 2.29 s, -23.88 LUFS in -> -16.00 LUFS
+3: [PASS] LIFT keeps the last seconds heard, trimmed to target
+3: [PASS] a keep comes with its default selection (snap ZERO); SELECT stays shut
+3: [PASS] DROP without SELECT places the default selection on T1
+3: [PASS] a knob turned after a keep opens SELECT (red moves the start)
+3:   wrote /workspace/mini-build/lift-renders/ui/juce_select.png
+3: [PASS] UNDO with SELECT open reverts the SELECT edit first
+3: [PASS] the next UNDO takes the DROP back off T1
+3: [PASS] then the KEEP
+3: [PASS] then the pin (one history for cables, pins, keeps, drops)
+3: [PASS] an overdub pass prints on T3 and REC keeps what was heard
+3:   pass 1 rms 0.0396; after UNDO mid pass 2: max diff 0.000000
+3: [PASS] UNDO mid-overdub discards the current pass only
+3: [PASS] UNDO again: the REC keep, then pass 1 comes off T3
+3: [PASS] SHIFT + DROP keeps with the default selection and places on the last place (T1), no SELECT
+3: [PASS] hold DROP + a key puts the sound on that key
+3: [PASS] export writes the clip, T1-T4 and the master as 24-bit 48 kHz WAV
+3:   PULSE -> REC (presses LIFT): 13 presses
+3: [PASS] PULSE pinned to REC, REC set to press LIFT: the pulses keep (LIFT), never record
+3: -- GRAIN FX: resampling keeps the live cloud
+3:   kept cloud: first half 220 0.0364 / 440 0.0204, second half 220 0.0027 / 440 0.0585
+3: [PASS] a keep of the GRAIN effect is the cloud as it evolved (220 Hz, then 440 Hz), not a frozen window
+3: -- save slots
+3: [PASS] slots are 001..999 (0 and 1000 rejected)
+3: [PASS] writing slot 0 or 1000 fails without touching the disk
+3: [PASS] slot 999 writes
+3: [PASS] slot 001 writes
+3: [PASS] nothing to reopen in an empty folder
+3: [PASS] saveSlot rejects 0 and 1000
+3: [PASS] loadSlot: 1000 is no slot, an unused slot is empty
+3: [PASS] save to slot 007
+3: [PASS] atomic write leaves only the slot and last-slot.txt (last-slot.txt,slot-007.lift)
+3: [PASS] load slot 007 into a fresh instance
+3: [PASS] every panel setting round-trips (knobs on all screens, pads, arm/mute, shift settings, patch cables/colours/stackables, engine/kit, MIDI learn)
+3: [PASS] the open panel shows the loaded state
+3: [PASS] tape audio of all four tracks and the LIFT clip round-trip sample-exact
+3: [PASS] engine gets playhead, loop points, arm, mutes and character; transport stopped
+3: [PASS] patch model republished (cables and pins)
+3: [PASS] knob and shift-layer models reach the engine atomics
+3: [PASS] a save from a newer format version is refused
+3: [PASS] a truncated save is refused and the state stays
+3: [PASS] getStateInformation / setStateInformation round-trip everything
+3: -- reopen last
+3: [PASS] a new instance reopens slot 007 (last saved)
+3: [PASS] save slot 012
+3: [PASS] then the next launch reopens 012
+3: [PASS] loading a slot makes it the one reopened next
+3: -- sample rate
+3:   44.1 kHz: tape tone 1000.00 Hz, 2.016 s of tape in 2 s
+3: [PASS] 44.1 kHz: tape plays at pitch (1 kHz stays 1 kHz)
+3: [PASS] 44.1 kHz: tape runs at real time
+3: [PASS] 44.1 kHz: synth A4 sounds at 440 Hz
+3:   96.0 kHz: tape tone 1000.00 Hz, 2.005 s of tape in 2 s
+3: [PASS] 96.0 kHz: tape plays at pitch (1 kHz stays 1 kHz)
+3: [PASS] 96.0 kHz: tape runs at real time
+3: [PASS] 96.0 kHz: synth A4 sounds at 440 Hz
+3:   48.0 kHz: tape tone 1000.00 Hz, 2.005 s of tape in 2 s
+3: [PASS] 48.0 kHz: tape plays at pitch (1 kHz stays 1 kHz)
+3: [PASS] 48.0 kHz: tape runs at real time
+3: [PASS] 48.0 kHz: synth A4 sounds at 440 Hz
+3: [PASS] load a 96 kHz save
+3:   96 kHz save on tape: 1000.00 Hz, 144000 frames, playhead 48000
+3: [PASS] 96 kHz tape audio is resampled to the 48 kHz tape on load
+3: -- MIDI
+3: [PASS] note on: pitch and velocity 127
+3: [PASS] velocity 20 plays softer than 127
+3: [PASS] pitch bend (+2 st) and mod wheel
+3: [PASS] sustain pedal holds the note until it lifts
+3: [PASS] poly: releasing the top note keeps the held one sounding
+3: [PASS] note off
+3:   clock in: 132.00 BPM
+3: [PASS] MIDI clock sets the tempo (132 BPM)
+3: [PASS] MIDI start runs the tape
+3: [PASS] from the loop start
+3: [PASS] MIDI stop stops it
+3: [PASS] no clock for 0.5 s: back to the internal tempo
+3: [PASS] MIDI continue carries on from where it stopped
+3:   clock out: 53 clocks, 1 starts in 1 s at 132.0 BPM
+3: [PASS] MIDI clock and start go out
+3: [PASS] panel keyboard notes go out as MIDI
+3: [PASS] CC 24 turns TAPE SPEED
+3: [PASS] MIDI learn binds CC 70 to TAPE BIAS
+3: [PASS] program change 11 loads slot 012
+3: [PASS] program change 6 loads slot 007
+3: [PASS] bank 3 / program 99 is slot 484: empty, nothing changes
+3: [PASS] CC 21 turns the second knob of the open screen, panel and engine together
+3: -- knobs (turned with the mouse on the panel, audio measured)
+3:   TAPE SPEED 0.50 -> 0.00: tape pitch 221.1 Hz -> 56.0 Hz (x0.253)
+3: [PASS] TAPE SPEED (mouse) changes the tape pitch
+3:   TAPE BIAS 0.45 -> 0.00: centroid 2501 -> 3335 Hz, level -0.7 dB, spectral change 0.12
+3: [PASS] TAPE BIAS (mouse) audibly changes the tape sound (brightness)
+3:   TAPE REC LVL 0.40 -> 1.00: level +12.6 dB, centroid 2411 -> 2429 Hz, spectral change 3.36
+3: [PASS] TAPE REC LVL (mouse) audibly drives the record chain
+3:   TAPE SCRUB (stopped): playhead 1.000 s -> 3.180 s, level while scrubbing 20.6 dB over still
+3: [PASS] TAPE SCRUB (mouse) jogs the tape and the heads play it
+3:   TAPE SCRUB (playing): pitch 221.1 Hz -> 877.6 Hz while turning
+3: [PASS] TAPE SCRUB (mouse) while playing pushes the tape speed
+3:   MIX LEVEL -> 0.27: -17.3 dB
+3: [PASS] MIX LEVEL (mouse) turns the armed track down
+3:   MIX PAN -> 0.00: L/R +0.0 dB -> +153.8 dB
+3: [PASS] MIX PAN (mouse) moves the armed track left
+3:   MIX LOW 0.55 -> 1.00: level +7.8 dB, centroid 2262 -> 1568 Hz
+3: [PASS] MIX LOW (mouse) changes the tone
+3:   MIX HIGH 0.45 -> 0.95: level +1.4 dB, centroid 2308 -> 3307 Hz
+3: [PASS] MIX HIGH (mouse) changes the tone
+3:   MIX LEVEL fast sweep: max 2nd difference 0.02031 (steady 0.02219)
+3: [PASS] MIX LEVEL sweep has no zipper steps
+3:   SYNTH DETUNE  0.35 -> 0.85: spectral change 0.29, centroid 690 -> 720 Hz, release +3.1 dB
+3: [PASS] SYNTH DETUNE (mouse) audibly changes the voice
+3:   SYNTH CUTOFF  0.62 -> 0.12: spectral change 1.00, centroid 662 -> 75 Hz, release -29.5 dB
+3: [PASS] SYNTH CUTOFF (mouse) audibly changes the voice
+3:   SYNTH ENV AMT 0.48 -> 0.98: spectral change 0.29, centroid 676 -> 3630 Hz, release +3.6 dB
+3: [PASS] SYNTH ENV AMT (mouse) audibly changes the voice
+3:   SYNTH DECAY   0.55 -> 0.05: spectral change 0.35, centroid 707 -> 642 Hz, release -19.2 dB
+3: [PASS] SYNTH DECAY (mouse) audibly changes the voice
+3:   IN GAIN -> 0.00: -68.6 dB
+3: [PASS] IN GAIN (mouse) sets the input level
+3: -- drums and effects from the panel
+3: [PASS] DRUM SLICE (mouse) selects a voice: SHAKER
+3: [PASS] DRUM SLICE back to the kick
+3: [PASS] clicking DRUM steps 2 and 4 toggles them for the kick
+3: [PASS] the edited pattern plays the kick with the transport (rms 0.1863, hits 1)
+3:   kick DECAY low -> high: tail -180.0 dB -> -15.2 dB
+3: [PASS] DRUM DECAY (mouse) lengthens the selected voice
+3: [PASS] SHIFT + FX selects the next effect
+3: [PASS] FX edit: knob 4 sets the spring's MIX
+3:   SPRING tail after a clap: -29.5 dB on, -180.0 dB bypassed
+3: [PASS] the spring reverb is on the FX pad (tail on, none when bypassed)
+3: ALL PANEL CHECKS PASSED (0 failed)
+3/4 Test #3: lift_panel_check .................   Passed   10.08 sec
+test 4
+    Start 4: lift_mini_check
+
+4: Test command: /workspace/mini-build/lift_mini_check_artefacts/Release/lift_mini_check
+4: Working Directory: /workspace/mini-build
+4: Test timeout computed to be: 10000000
+4: PASS  SHIFT: on while held
+4: PASS  SHIFT: tap = cancel, then off
+4: PASS  SHIFT: double tap latches (no second cancel)
+4: PASS  SHIFT: tap while latched unlatches, no cancel
+4: PASS  SHIFT: two taps far apart = two cancels, no latch
+4: PASS  SHIFT+turn: shifted
+4: PASS  SHIFT+turn: release is not a tap
+4: PASS  SHIFT released mid-turn: same encoder stays shifted inside the grace
+4: PASS  SHIFT released mid-turn: grace extends while it keeps turning
+4: PASS  SHIFT released mid-turn: other encoders are un-shifted at once
+4: PASS  SHIFT released mid-turn: grace ends when the turning stops
+4: PASS  SHIFT+key: release is not a cancel
+4: PASS  SHIFT: long press alone does nothing
+4: PASS  SHIFT: latched
+4: PASS  SHIFT: mode key while latched opens the mode un-shifted
+4: PASS  speed knob: centre band = stop
+4: PASS  speed knob: ends = -4x / +4x
+4: PASS  speed knob: monotonic, finite, through zero
+4: PASS  speed knob: 1x snaps
+4: PASS  speed knob: small just past the stop band
+4: PASS  speed through zero: output finite (no divide by speed)
+4: PASS  speed through zero: direction flips only near standstill (0.000000)
+4: PASS  speed through zero: 0 holds the tape still while playing
+4: PASS  speed jump +1 -> -1: glides to a stop, then reverses
+4: PASS  loop crossfade, reverse: wet side reads backwards into loopEnd
+4: PASS  loop crossfade, reverse: continuous across the wrap
+4: PASS  loop crossfade, forward: continuous across the wrap
+4: PASS  queue: overflow counted (1978)
+4: PASS  queue: no press dropped, last one applied in order
+4: PASS  capture: capacity excludes the guard
+4: PASS  capture: reads while the writer runs are never torn (torn frames zeroed: 0)
+4: PASS  jobs: a 20 s LIFT is spread over callbacks
+4: PASS  jobs: LIFT done, clip is the loop
+4: PASS  jobs: LIFT copied exactly
+4: PASS  jobs: DROP clip then UNDO in one go restores the track exactly (order kept)
+4: PASS  computer audio: fake capture arrives at 48 kHz through the ring (COMPUTER AUDIO  FAKE)
+4: PASS  computer audio: the audio-thread read never blocks (0.006000 ms)
+4: PASS  computer audio: a refused backend = silence + a message (COMPUTER AUDIO: PERMISSION DENIED)
+4: PASS  computer audio: never sent to the output, no feedback (tap leaves LIFT out: adds)
+4: PASS  computer audio: LIFT keeps it from the listen buffer (tap leaves LIFT out: adds), rms 0.121822
+4: PASS  computer audio: never sent to the output, no feedback (loopback hears LIFT: replaces)
+4: PASS  computer audio: LIFT keeps it from the listen buffer (loopback hears LIFT: replaces), rms 0.123412
+4: BENCH  idle (playing)               worst   0.200 ms  (budget 5.33 ms)
+4: BENCH  LIFT (60 s loop)             worst   0.211 ms  (budget 5.33 ms)
+4: BENCH  DROP (60 s clip)             worst   0.261 ms  (budget 5.33 ms)
+4: BENCH  UNDO DROP                    worst   0.211 ms  (budget 5.33 ms)
+4: BENCH  SHIFT+LIFT (4 tracks)        worst   0.247 ms  (budget 5.33 ms)
+4: BENCH  DROP clip to loop (30 s)     worst   0.245 ms  (budget 5.33 ms)
+4: BENCH  UNDO (clip drop)             worst   0.239 ms  (budget 5.33 ms)
+4: BENCH  LIFT x3 + DROP x3 burst      worst   0.228 ms  (budget 5.33 ms)
+4: PASS  callback under half the block budget: idle (playing)
+4: PASS  callback under half the block budget: LIFT (60 s loop)
+4: PASS  callback under half the block budget: DROP (60 s clip)
+4: PASS  callback under half the block budget: UNDO DROP
+4: PASS  callback under half the block budget: SHIFT+LIFT (4 tracks)
+4: PASS  callback under half the block budget: DROP clip to loop (30 s)
+4: PASS  callback under half the block budget: UNDO (clip drop)
+4: PASS  callback under half the block budget: LIFT x3 + DROP x3 burst
+4: ALL PASS
+4/4 Test #4: lift_mini_check ..................   Passed    9.23 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  64.74 sec
