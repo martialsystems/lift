@@ -255,6 +255,8 @@ private:
             buf.setSize(2, n, false, false, true);
             for (int i = 0; i < n; ++i) { float l, r; inputSample(l, r); buf.setSample(0, i, l); buf.setSample(1, i, r); }
             proc_->flushBacklog();          // the processor's 30 Hz timer, which no message loop drives here
+            proc_->pumpSave();
+            if (ui_ != nullptr) ui_->tick();
             const double t0 = juce::Time::getMillisecondCounterHiRes();
             proc_->processBlock(buf, pendingMidi_);
             worstMs_ = std::max(worstMs_, juce::Time::getMillisecondCounterHiRes() - t0);
@@ -467,9 +469,11 @@ private:
             if (one) for (int i = 0; i < std::abs(d); ++i) { send({Event::Turn, e, d > 0 ? 1 : -1}); advance(gap); }
             else send({Event::Turn, e, d});
         } else if (c == "restart") {
-            // quit (the app saves the project) and power on again
+            // quit (the app saves the project) and power on again;
+            // "restart nosave": the power is pulled, only autosave counts
             for (int k : std::vector<int>(held_.begin(), held_.end())) keyDown(k, false);
-            ui_->saveNow();
+            if (arg(1) != "nosave") ui_->saveNow();
+            for (int i = 0; i < 20000 && proc_->saveBusy(); ++i) { proc_->pumpSave(); juce::Thread::sleep(1); }
             ui_.reset();
             proc_.reset();
             start();

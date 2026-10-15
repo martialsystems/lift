@@ -141,6 +141,8 @@ MiniUi::View MiniUi::view() const {
 void MiniUi::say(String s) { flash_ = std::move(s); flashUntil_ = now() + 1500; }
 
 void MiniUi::handle(const Event& e) {
+    projectDirty_ = true;
+    lastEdit_ = now();
     switch (e.kind) {
         case Event::Key: key(e.index, e.value != 0); break;
         case Event::Button: button(Btn(e.index), e.value != 0); break;
@@ -165,6 +167,16 @@ void MiniUi::button(Btn b, bool down) {
     switch (b) {
         case Btn::Synth: case Btn::Drum: case Btn::Tape: case Btn::Mix: {
             const auto m = Mode(int(b));
+            if (s && shift_.held() && (m == Synth || m == Drum)) {
+                // SHIFT + SYNTH / DRUM: the sound (kit) as a new slot: the first
+                // empty one, else over the one in use
+                int slot = 0;
+                for (int i = 1; i <= 8 && slot == 0; ++i) if (!soundFile(m, i).existsAsFile()) slot = i;
+                if (slot == 0) slot = jmax(1, curSound_[m]);
+                if (saveSound(m, slot)) { curSound_[m] = slot; say(String(m == Synth ? "SAVED SOUND " : "SAVED KIT ") + String(slot)); }
+                else say("SAVE FAILED");
+                break;
+            }
             if (m != mode_) releaseHeldNotes();   // the old mode's notes stop now
             page_ = (m == mode_) ? (page_ + 1) % kPageCount[int(m)] : 0;   // tap again: the next real page
             mode_ = m;
@@ -238,7 +250,18 @@ void MiniUi::shiftKey(int k) {
     const int pc = k % 12, oct = k / 12;
     if (kWhite[pc] > 0) {
         const int w = oct * 7 + kWhite[pc];
-        if (w <= 8) { proc_.saveSlotAsync(w, nullptr); say("SAVED SLOT " + String(w)); }
+        if (w > 8) return;
+        if (mode_ == Mix && pg() == 2) {            // PROJECT page: projects 1-8
+            if (proc_.loadSlot(w) == lift::LiftProcessor::LoadResult::Ok) say("PROJECT " + String(w));
+            else say("PROJECT " + String(w) + " EMPTY");
+        } else if (mode_ == Synth || mode_ == Drum) {
+            if (soundDirty_[mode_] && curSound_[mode_] > 0) saveSound(mode_, curSound_[mode_]);   // edits are never lost
+            const char* what = mode_ == Synth ? "SOUND SLOT " : "KIT SLOT ";
+            if (recallSound(mode_, w)) say(String(what) + String(w));
+            else say(String(what) + String(w) + " EMPTY");
+        } else {
+            say("SLOT " + String(w) + ": PICK SYNTH OR DRUM");
+        }
         return;
     }
     static const char* const kTools[10] = {
@@ -246,6 +269,52 @@ void MiniUi::shiftKey(int k) {
         "JACKS SETUP", "USB MODE", "BATTERY", "SPARE", "SPARE"};
     const int b = oct * 5 + kBlack[pc];   // 1..10
     say(String(kTools[b - 1]) + ": NOT IN THIS BUILD");
+}
+
+File MiniUi::soundFile(int mode, int slot) const {
+    return proc_.slots().folder().getChildFile("sounds").getChildFile(String(mode == Synth ? "synth-" : "kit-") + String(slot) + ".json");
+}
+
+bool MiniUi::saveSound(int mode, int slot) {
+    auto* o = new DynamicObject();
+    o->setProperty("v", 1);
+    if (mode == Synth) o->setProperty("engine", proc_.synthEngine.load());
+    else o->setProperty("kit", proc_.drumKit.load());
+    Array<var> vals;
+    for (auto& p : val_[mode]) for (auto& sd : p) for (float k : sd) vals.add(k);
+    o->setProperty("vals", vals);
+    const File f = soundFile(mode, slot);
+    f.getParentDirectory().createDirectory();
+    soundDirty_[mode] = false;
+    return f.replaceWithText(JSON::toString(var(o), true));
+}
+
+bool MiniUi::recallSound(int mode, int slot) {
+    const var v = JSON::parse(soundFile(mode, slot));
+    if (!v.isObject()) return false;
+    if (mode == Synth) proc_.synthEngine.store(jlimit(0, int(lift::eng::kSynthEngines) - 1, int(v.getProperty("engine", 0))));
+    else proc_.drumKit.store(jmax(0, int(v.getProperty("kit", 0))));
+    if (auto* a = v.getProperty("vals", var()).getArray()) {
+        int i = 0;
+        for (auto& p : val_[mode]) for (auto& sd : p) for (float& k : sd)
+            if (i < a->size()) k = jlimit(0.f, 1.f, float(double((*a)[i++])));
+    }
+    for (int p = 0; p < kPageCount[mode]; ++p)
+        for (int side = 0; side < 2; ++side)
+            for (int k = 0; k < 4; ++k) apply(mode, p, side, k);
+    curSound_[mode] = slot;
+    soundDirty_[mode] = false;
+    return true;
+}
+
+void MiniUi::tick() {
+    if (now() - lastEdit_ < 1500.0) return;   // a moment after the last edit
+    for (int m = 0; m < 2; ++m)
+        if (soundDirty_[m] && curSound_[m] > 0) saveSound(m, curSound_[m]);
+    if (projectDirty_ && !proc_.saveBusy()) {
+        projectDirty_ = false;
+        proc_.saveSlotAsync(projectSlot(), nullptr);
+    }
 }
 
 void MiniUi::releaseHeldNotes() {
@@ -315,6 +384,7 @@ void MiniUi::turn(int e, int detents) {
         v = jlimit(0.f, 1.f, v + kSlowStep * encoderAccel(dt, detents) * float(detents));
     }
     apply(mode_, pg(), side, e);
+    if (mode_ == Synth || mode_ == Drum) soundDirty_[mode_] = true;
 }
 
 // One knob value to wherever it lives. Parameters the engine has no hook for
@@ -423,6 +493,7 @@ void MiniUi::timerCallback() {
         for (int i = 0; i < 480; ++i) scope_[i] = scopeBuf_[size_t(jmin(n - 1, i * stride))];
     }
     proc_.drainMidiEvents();
+    tick();
     repaint();
 }
 

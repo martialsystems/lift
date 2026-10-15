@@ -26,6 +26,9 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
     bool keyStateChanged(bool isDown) override;
     void setStatus(const juce::String& s) { status_ = s; }
+    // Autosave: the sound slot in use and the project, a moment after the
+    // last edit (the project with the chunked saver). The timer calls it.
+    void tick();
     // Start-up: reopen the last project where it was left, else a new one
     // (SYNTH, LOOM, 100 BPM). saveNow() writes the project (on quit).
     void boot();
@@ -92,6 +95,15 @@ private:
     struct Undo { bool pass; int passNo, track; };   // SHIFT + OCT-: newest first
     std::vector<Undo> undo_;
     int expectedPass_ = 0;
+    // sound slots (SYNTH sounds, DRUM kits): 8 each, a few KB of settings,
+    // not the session. Saved again automatically while you edit them.
+    juce::File soundFile(int mode, int slot) const;
+    bool saveSound(int mode, int slot);
+    bool recallSound(int mode, int slot);
+    int curSound_[2] = {0, 0};
+    bool soundDirty_[2] = {false, false};
+    bool projectDirty_ = false;
+    double lastEdit_ = 0;
     void applyAll();
     juce::String toJson() const;
     void fromJson(const juce::String&);

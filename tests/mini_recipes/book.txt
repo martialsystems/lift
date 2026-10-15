@@ -358,6 +358,90 @@ recipe: SHIFT + white key 8 (C4) is slot 8
   button SHIFT up
   expect toast has SLOT 8
 
+recipe: SHIFT + SYNTH saves the sound to a new slot; SHIFT + white key recalls it
+  turn yellow 10 each 200
+  button SHIFT down
+  button SYNTH tap
+  button SHIFT up
+  expect toast has SAVED SOUND 1
+  expect mode == SYNTH
+  wait 400
+  button SHIFT down
+  button SYNTH tap        # a copy in slot 2: edits now save there
+  button SHIFT up
+  turn yellow -20 each 200
+  expect knob yellow < 0.41
+  button SHIFT down
+  key w1 tap
+  button SHIFT up
+  expect toast has SOUND SLOT 1
+  expect knob yellow > 0.599
+  expect knob yellow < 0.601
+
+recipe: A second SHIFT + SYNTH takes the next empty slot
+  button SHIFT down
+  button SYNTH tap
+  button SHIFT up
+  wait 400
+  button SHIFT down
+  button SYNTH tap
+  button SHIFT up
+  expect toast has SAVED SOUND 2
+
+recipe: SHIFT + DRUM saves a kit; DRUM slots are separate
+  button DRUM tap
+  button SHIFT down
+  button DRUM tap
+  button SHIFT up
+  expect toast has SAVED KIT 1
+  button SYNTH tap
+  button SHIFT down
+  key w1 tap
+  button SHIFT up
+  expect toast has SOUND SLOT 1 EMPTY
+
+recipe: Recalling a sound leaves the session alone
+  fill track 1 sine 220 0.3
+  button SHIFT down
+  button SYNTH tap
+  button SHIFT up
+  wait 400
+  button MIX tap
+  button MIX tap
+  button MIX tap
+  turn yellow 10 each 200
+  button SYNTH tap
+  button SHIFT down
+  key w1 tap
+  button SHIFT up
+  expect tempo == 122
+  expect track_rms 1 > 0.1
+  expect mode == SYNTH
+
+recipe: A recalled sound saves itself as you edit it
+  button SHIFT down
+  button SYNTH tap
+  button SHIFT up
+  wait 400
+  turn blue 10 each 200
+  wait 2000
+  turn blue -20 each 200
+  wait 400
+  button SHIFT down
+  key w1 tap
+  button SHIFT up
+  expect knob blue < 0.41    # the newest edit came back (it saved itself)
+
+recipe: The project autosaves a moment after you stop
+  button TAPE tap
+  push red
+  turn blue 10 each 200
+  wait 2500
+  restart nosave
+  expect mode == TAPE
+  expect track == 4
+  expect knob blue > 0.599
+
 # ================================================================ TAPE
 
 recipe: PLAY starts and stops the tape at 1x

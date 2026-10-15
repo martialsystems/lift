@@ -1671,6 +1671,7 @@ bool LiftProcessor::saveSlot(int slot) {
     if (!SlotStore::valid(slot)) {
         return false;
     }
+    cancelSave();   // an older chunked save must not land over this one
     const auto blob = saveState();
     if (!slots_.write(slot, blob)) {
         return false;

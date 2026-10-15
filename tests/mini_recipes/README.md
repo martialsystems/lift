@@ -82,7 +82,7 @@ and slots save to a temporary folder.
 | `push COLOUR [down\|up\|tap]` | Encoder press. |
 | `midi CH noteon N [VEL]` / `noteoff N` / `cc N V` | A MIDI message as the Pico (or a keyboard) sends it. Channel 16 is the panel map in `mini/MiniControls.h`; anything else goes to the engine. |
 | `wait MS` / `run SECONDS` | Let time pass; audio runs. |
-| `restart` | Quit (the project saves) and power on again (reopens it). |
+| `restart [nosave]` | Quit (the project saves) and power on again (reopens it). `nosave`: pull the power; only the autosave counts. |
 | `mark` | Start a new measurement: `out ...`, `moved` and `block_ms` count from here. |
 | `input silence \| sine HZ AMP \| noise AMP` | What the audio input hears. |
 | `fill track N sine HZ AMP` | Write a tone straight onto a tape track (setup, not playing). |
