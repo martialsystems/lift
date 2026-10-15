@@ -204,19 +204,48 @@ recipe: Each mode key opens its screen
   button TAPE tap
   expect mode == TAPE
 
-recipe: Tapping a mode key again moves through four pages and wraps
-  button TAPE tap
+recipe: SYNTH and DRUM have four pages; tapping again cycles and wraps
+  button DRUM tap
+  expect page == 1
+  expect pages == 4
+  button DRUM tap
+  button DRUM tap
+  button DRUM tap
+  expect page == 4
+  button DRUM tap
+  expect page == 1
   button SYNTH tap
   expect page == 1
   button SYNTH tap
   expect page == 2
+  expect pages == 4
   button SYNTH tap
   button SYNTH tap
-  expect page == 4
   button SYNTH tap
   expect page == 1
-  button DRUM tap
+
+recipe: MIX has three pages (MIX, MASTER, PROJECT)
+  button MIX tap
+  expect pages == 3
+  button MIX tap
+  button MIX tap
+  expect page == 3
+  button MIX tap
   expect page == 1
+
+recipe: TAPE has one page; tapping again stays on it
+  button TAPE tap
+  expect pages == 1
+  button TAPE tap
+  expect page == 1
+  button TAPE tap
+  expect page == 1
+
+recipe: The page indicator shows n/total
+  button MIX tap
+  button MIX tap
+  paint
+  expect page_label has 2/3
 
 recipe: A mode key closes the source list
   button SHIFT down

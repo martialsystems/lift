@@ -118,7 +118,9 @@ void MiniUi::stateLoaded(int) {
 MiniUi::View MiniUi::view() const {
     View v{};
     v.mode = mode_;
-    v.page = page_;
+    v.page = pg();
+    v.pages = mode_ == Radio ? 1 : kPageCount[mode_];
+    v.pageLabel = String(kModeName[mode_]) + (mode_ == Radio ? String() : "  " + String(pg() + 1) + "/" + String(kPageCount[mode_]));
     v.octave = octave_;
     v.track = track_;
     v.source = source_;
@@ -164,7 +166,7 @@ void MiniUi::button(Btn b, bool down) {
         case Btn::Synth: case Btn::Drum: case Btn::Tape: case Btn::Mix: {
             const auto m = Mode(int(b));
             if (m != mode_) releaseHeldNotes();   // the old mode's notes stop now
-            page_ = (m == mode_) ? (page_ + 1) % 4 : 0;   // tap again: next page
+            page_ = (m == mode_) ? (page_ + 1) % kPageCount[int(m)] : 0;   // tap again: the next real page
             mode_ = m;
             sourcesOpen_ = false;
             break;
@@ -403,7 +405,7 @@ void MiniUi::paint(Graphics& g) {
     const float q = st.getWidth() / 4.f;
     g.setFont(label(1.1f));
     g.setColour(col::ink);
-    g.drawText(String(kModeName[mode_]) + "  " + String(page_ + 1) + "/4", st.removeFromLeft(q), Justification::centredLeft);
+    g.drawText(String(kModeName[mode_]) + (mode_ == Radio ? String() : "  " + String(pg() + 1) + "/" + String(kPageCount[mode_])), st.removeFromLeft(q), Justification::centredLeft);
     g.setColour(proc_.clockSlaved.load() ? col::ink : col::dim);
     g.drawText(String(proc_.tempoBpm.load(), 1) + " BPM", st.removeFromLeft(q), Justification::centred);
     g.setColour(col::dim);

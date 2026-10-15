@@ -40,7 +40,8 @@ public:
     void setClock(std::function<double()> c) { clock_ = std::move(c); }
     struct View {
         Mode mode;
-        int page, octave, track, source, sourceSel;
+        int page, pages, octave, track, source, sourceSel;
+        juce::String pageLabel;   // the status bar's mode and n/total
         bool sourcesOpen, shift, shiftLatched;
         bool mute[4];
         float knob[4];            // the four knobs of the page on show, plain side (0..1)

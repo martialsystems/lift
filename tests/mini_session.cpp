@@ -347,6 +347,7 @@ private:
         else if (k == "sknob" && m.size() > 1) { const int e = encoderOf(m[1]); if (e < 0) { fail("sknob: yellow, blue, black or red"); return false; } have = v.knobS[e]; }
         else if (k == "tempo") have = proc_->tempoBpm.load();
         else if (k == "engine") have = proc_->synthEngine.load();
+        else if (k == "pages") have = v.pages;
         else if (k == "loop") have = (proc_->uiLoopEnd.load() - proc_->uiLoopStart.load()) / kRate;
         else if (k == "character") have = rt.character;
         else if (k == "fader" && m.size() > 1) have = rt.fader[std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3)];
@@ -393,17 +394,18 @@ private:
 
     // expect METRIC... OP VALUE   |   expect toast has|lacks WORDS...
     void expect(const std::vector<std::string>& w) {
-        if (w.size() >= 3 && w[1] == "toast" && (w[2] == "has" || w[2] == "lacks")) {
+        if (w.size() >= 3 && (w[1] == "toast" || w[1] == "page_label") && (w[2] == "has" || w[2] == "lacks")) {
             std::string want;
             for (size_t i = 3; i < w.size(); ++i) want += (want.empty() ? "" : " ") + w[i];
-            const std::string toast = ui_->view().toast.toStdString();
+            const auto vw = ui_->view();
+            const std::string toast = (w[1] == "toast" ? vw.toast : vw.pageLabel).toStdString();
             auto squash = [](std::string x) {   // case and runs of spaces don't matter
                 std::string o;
                 for (char ch : upper(x)) if (!(ch == ' ' && !o.empty() && o.back() == ' ')) o += ch;
                 return o;
             };
             const bool has = squash(toast).find(squash(want)) != std::string::npos;
-            if (has != (w[2] == "has")) fail("expected toast " + w[2] + " \"" + want + "\", toast is \"" + toast + "\"");
+            if (has != (w[2] == "has")) fail("expected " + w[1] + " " + w[2] + " \"" + want + "\", toast is \"" + toast + "\"");
             return;
         }
         if (w.size() < 4) { fail("expect needs a metric, an operator and a value"); return; }

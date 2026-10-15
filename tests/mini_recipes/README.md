@@ -67,8 +67,9 @@ Indentation is only for reading.
 
 ### Starting state
 
-TAPE screen, page 1, track 1, octave 0, speed 1x, stopped, empty tape (60 s
-per track), no clip, source INTERNAL, SHIFT off. Drum patterns are cleared
+A new project: SYNTH screen, page 1, LOOM, 100 BPM, no loop, track 1, octave 0,
+speed 1x, stopped, empty tape (60 s per track), no clip, source INTERNAL,
+SHIFT off. Each recipe has its own empty slot folder. Drum patterns are cleared
 and slots save to a temporary folder.
 
 ### Steps
@@ -77,10 +78,11 @@ and slots save to a temporary folder.
 |---|---|
 | `button NAME [down\|up\|tap]` | A panel button. NAME: `SYNTH DRUM TAPE MIX OCT- OCT+ LIFT DROP REC PLAY SHIFT`. Default `tap` (down, 40 ms, up, 40 ms). |
 | `key SPEC [down\|up\|tap]` | A key. SPEC: `1`–`24` chromatic from C3, `w1`–`w14` white keys, `b1`–`b10` black keys, as the hardware sheet counts them. `tap` holds 150 ms. |
-| `turn COLOUR N [each]` | Encoder turn of N detents (negative = left) as one event, like a fast Pico turn. `each` sends N single detents 10 ms apart, like a hand. COLOUR: `yellow blue black red` (or `1`–`4`). |
+| `turn COLOUR N [each [MS]]` | Encoder turn of N detents (negative = left) as one event, like a fast Pico turn. `each` sends N single detents 10 ms apart, like a quick hand (acceleration applies); `each 200` spaces them 200 ms, a slow hand (1 % a detent). COLOUR: `yellow blue black red` (or `1`–`4`). |
 | `push COLOUR [down\|up\|tap]` | Encoder press. |
 | `midi CH noteon N [VEL]` / `noteoff N` / `cc N V` | A MIDI message as the Pico (or a keyboard) sends it. Channel 16 is the panel map in `mini/MiniControls.h`; anything else goes to the engine. |
 | `wait MS` / `run SECONDS` | Let time pass; audio runs. |
+| `restart` | Quit (the project saves) and power on again (reopens it). |
 | `mark` | Start a new measurement: `out ...`, `moved` and `block_ms` count from here. |
 | `input silence \| sine HZ AMP \| noise AMP` | What the audio input hears. |
 | `fill track N sine HZ AMP` | Write a tone straight onto a tape track (setup, not playing). |
@@ -98,13 +100,18 @@ and slots save to a temporary folder.
 | Metric | Value |
 |---|---|
 | `mode` | `SYNTH DRUM TAPE MIX RADIO` |
-| `page` | 1–4 |
+| `page`, `pages` | page on show (1–4), real pages in this mode (SYNTH/DRUM 4, MIX 3, TAPE 1) |
+| `page_label has TEXT` | the status bar's mode and n/total (like `toast has`) |
 | `octave` | −3…3 |
 | `track` | picked track, 1–4 |
 | `arm` | the tape's armed track, 1–4 (the processor's view) |
 | `source`, `source_sel` | `INTERNAL RADIO COMPUTER MASTER` (chosen / highlighted) |
 | `sources_open`, `shift`, `shift_latched` | 0 or 1 |
-| `knob COLOUR` | that knob on the screen on show, 0–1 |
+| `knob COLOUR`, `sknob COLOUR` | that knob's plain / SHIFT parameter on the page on show, 0–1 |
+| `tempo`, `engine` | BPM; synth engine (0 = LOOM) |
+| `loop` | loop length, seconds (0 = off) |
+| `character` | tape character row (0 DECK … 3 CAP) |
+| `fader N`, `pan N` | track N's level (gain²) and pan (−1…1) |
 | `mute N` | 0 or 1 |
 | `speed` | signed tape speed (−4…4) |
 | `playing`, `recording` | 0 or 1 |
