@@ -222,6 +222,65 @@ void runStateChecks(const Check& check) {
         check(names.joinIntoString(",") == "last-slot.txt,slot-007.lift",
               "atomic write leaves only the slot and last-slot.txt (" + names.joinIntoString(",") + ")");
 
+        {
+            // chunked async save: same bytes as saveState, small chunks, no
+            // long stall on the calling (message) thread
+            const auto want = a.saveState();
+            double worst = 0;
+            auto timed = [&](auto fn) {
+                const double t0 = juce::Time::getMillisecondCounterHiRes();
+                fn();
+                worst = std::max(worst, juce::Time::getMillisecondCounterHiRes() - t0);
+            };
+            timed([&] { a.saveSlotAsync(8, nullptr); });
+            for (int i = 0; i < 200000 && a.saveBusy(); ++i) {
+                timed([&] { a.pumpSave(); });
+                juce::Thread::sleep(1);
+            }
+            juce::MemoryBlock got;
+            a.slots().read(8, got);
+            check(!a.saveBusy() && got == want, "chunked slot save writes the same bytes as saveState (" + juce::String(int(got.getSize())) + " bytes)");
+            check(a.savePeakBytes() <= size_t(lift::LiftProcessor::kSaveChunksInFlight + 1) * (size_t(lift::LiftProcessor::kSaveChunkFrames) * 4 + 8),
+                  "chunked slot save keeps at most a few MB in memory (peak " + juce::String(int(a.savePeakBytes() >> 10)) + " KB, tape " + juce::String(int(want.getSize() >> 20)) + " MB)");
+            std::printf("INFO  chunked save: worst message-thread step %.2f ms (tape %d MB)\n", worst, int(want.getSize() >> 20));
+            {
+                // a full 60 s x 4 track tape (the ~92 MB case)
+                lift::LiftProcessor f;
+                f.setSlotFolder(folder);
+                f.prepareToPlay(48000.0, 512);
+                auto& rt = f.runtime();
+                for (int t = 0; t < 4; ++t)
+                    for (int c = 0; c < 2; ++c)
+                        for (int i = 0; i < rt.frames; ++i) rt.ch[t][c][i] = 0.001f * float((i * 7 + t) % 97);
+                double first = 0, pumpWorst = 0;
+                double t0 = juce::Time::getMillisecondCounterHiRes();
+                f.saveSlotAsync(10, nullptr);
+                first = juce::Time::getMillisecondCounterHiRes() - t0;
+                const double start = t0;
+                while (f.saveBusy()) {
+                    t0 = juce::Time::getMillisecondCounterHiRes();
+                    f.pumpSave();
+                    pumpWorst = std::max(pumpWorst, juce::Time::getMillisecondCounterHiRes() - t0);
+                    juce::Thread::sleep(1);
+                }
+                const double all = juce::Time::getMillisecondCounterHiRes() - start;
+                const auto size = f.slots().slotFile(10).getSize();
+                std::printf("INFO  full tape chunked save: %d MB, start %.2f ms, worst step %.2f ms, peak %d KB, %.0f ms total\n",
+                            int(size >> 20), first, pumpWorst, int(f.savePeakBytes() >> 10), all);
+                check(size > 90 * 1000 * 1000 && f.savePeakBytes() < 8u * 1024 * 1024,
+                      "full tape saves in chunks with a peak under 8 MB");
+                f.slots().slotFile(10).deleteFile();
+            }
+            a.saveSlotAsync(9, nullptr);
+            a.loadSlot(8);   // a load cancels the save in flight
+            for (int i = 0; i < 20000 && a.saveBusy(); ++i) juce::Thread::sleep(1);
+            juce::Array<juce::File> left;
+            folder.findChildFiles(left, juce::File::findFiles, false, "*slot-009*");
+            check(!a.saveBusy() && left.isEmpty(), "a load cancels a chunked save and leaves no file behind");
+            a.slots().slotFile(8).deleteFile();
+            a.setUiState(odd);
+            a.saveSlot(7);
+        }
         lift::LiftProcessor b;
         b.setSlotFolder(folder);
         b.prepareToPlay(48000.0, 512);

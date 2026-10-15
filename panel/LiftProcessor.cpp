@@ -9,6 +9,7 @@
 #include "tape/edit.h"
 #include "tape/transport.h"
 
+#include <utility>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -135,6 +136,7 @@ LiftProcessor::LiftProcessor()
 
 LiftProcessor::~LiftProcessor() {
     stopTimer();
+    cancelSave();
     radio_.store(nullptr);
     radioOwner_.reset();
     sys_.store(nullptr);
@@ -1356,6 +1358,7 @@ void LiftProcessor::timerCallback() {
     }
     flushBacklog();
     drainMidiEvents();
+    pumpSave();
 }
 
 void LiftProcessor::drainMidiEvents() {
@@ -1442,12 +1445,11 @@ void LiftProcessor::applyExtras(const UiState& s, const UiState* prev) {
     transposeSemis.store(s.transpose);
 }
 
-juce::MemoryBlock LiftProcessor::saveState() {
+void LiftProcessor::writeStateHeader(juce::MemoryOutputStream& out, int (&len)[4][2], int& clipN) {
     if (listener_ != nullptr) {
         listener_->flushState();
     }
     ensureTracks();
-    juce::MemoryOutputStream out;
     out.write(kMagic, 8);
     out.writeInt(kStateVersion);
     const juce::String xml = ui_.toTree().toXmlString();
@@ -1461,15 +1463,27 @@ juce::MemoryBlock LiftProcessor::saveState() {
     out.writeInt(rt.frames);
     out.writeDouble(rt.pos);
     out.writeInt(kTrackCount);
-    int len[kTrackCount][2];
-    size_t total = 0;
+    static_assert(kTrackCount == 4);
     for (int t = 0; t < kTrackCount; ++t) {
         for (int c = 0; c < 2; ++c) {
             len[t][c] = trimmedLength(rt.ch[t][c], rt.frames);
+        }
+    }
+    clipN = juce::jlimit(0, rt.frames, rt.clipFrames);
+}
+
+juce::MemoryBlock LiftProcessor::saveState() {
+    juce::MemoryOutputStream out;
+    int len[kTrackCount][2];
+    int clipN = 0;
+    writeStateHeader(out, len, clipN);
+    const TapeRuntime& rt = *rt_;
+    size_t total = 0;
+    for (int t = 0; t < kTrackCount; ++t) {
+        for (int c = 0; c < 2; ++c) {
             total += static_cast<size_t>(len[t][c]) * 4 + 4;
         }
     }
-    const int clipN = juce::jlimit(0, rt.frames, rt.clipFrames);
     out.preallocate(out.getDataSize() + total + static_cast<size_t>(clipN) * 8 + 64);
     for (int t = 0; t < kTrackCount; ++t) {
         for (int c = 0; c < 2; ++c) {
@@ -1485,6 +1499,7 @@ juce::MemoryBlock LiftProcessor::saveState() {
 }
 
 LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size, int slot) {
+    cancelSave();   // a save in flight would mix the old tape with the new
     juce::MemoryInputStream in(data, size, false);
     char magic[8] = {};
     if (size < 16 || in.read(magic, 8) != 8 || std::memcmp(magic, kMagic, 8) != 0) {
@@ -1613,25 +1628,134 @@ bool LiftProcessor::saveSlot(int slot) {
     return true;
 }
 
+// One chunked slot save (saveSlotAsync). The message thread owns the cursor;
+// the io thread owns the file. Streams carry the same bytes as saveState().
+struct LiftProcessor::SaveJob {
+    int slot = 0;
+    juce::File target, tmp;
+    std::unique_ptr<juce::FileOutputStream> file;   // io thread only
+    std::atomic<bool> cancelled{false}, failed{false};
+    int len[kTrackCount][2] = {};
+    int clipN = 0;
+    int stream = 0;      // 0..7 tracks x channels, 8..9 clip L/R, 10 = done
+    int at = -1;         // frames written in this stream (-1 = its length int not yet)
+    std::function<void(bool)> done;
+};
+
 void LiftProcessor::saveSlotAsync(int slot, std::function<void(bool)> done) {
-    if (!SlotStore::valid(slot)) {
+    if (!SlotStore::valid(slot) || !slots_.folder().createDirectory()) {
         if (done) {
             done(false);
         }
         return;
     }
-    // the snapshot is taken here (the tape must not move under it); only the
-    // disk write goes to the background
-    auto blob = std::make_shared<juce::MemoryBlock>(saveState());
+    cancelSave();   // a newer save wins
+    auto job = std::make_shared<SaveJob>();
+    job->slot = slot;
+    job->target = slots_.slotFile(slot);
+    job->tmp = job->target.getSiblingFile("." + job->target.getFileName() + ".part");
+    job->done = std::move(done);
+    auto header = std::make_shared<juce::MemoryOutputStream>();
+    writeStateHeader(*header, job->len, job->clipN);
     currentSlot_ = slot;
-    const SlotStore* store = &slots_;
-    io_.addJob([store, slot, blob, done = std::move(done)] {
-        const bool ok = store->write(slot, *blob) && store->setLastSlot(slot);
-        juce::MessageManager::callAsync([done, ok] {
-            if (done) {
-                done(ok);
+    saveJob_ = job;
+    ++saveIo_;
+    io_.addJob([this, job, header] {
+        if (!job->cancelled.load()) {
+            job->tmp.deleteFile();
+            job->file = std::make_unique<juce::FileOutputStream>(job->tmp);
+            if (!job->file->openedOk() || !job->file->write(header->getData(), header->getDataSize())) {
+                job->failed.store(true);
             }
+        }
+        --saveIo_;
+    });
+    pumpSave();
+}
+
+void LiftProcessor::pumpSave() {
+    auto job = saveJob_;
+    if (job == nullptr) {
+        return;
+    }
+    const TapeRuntime& rt = *rt_;
+    // copy at most kSaveChunksInFlight chunks per call, and never more than
+    // that many waiting for the disk
+    for (int n = 0; n < kSaveChunksInFlight && saveIo_.load() < kSaveChunksInFlight && job->stream < 10; ++n) {
+        auto chunk = std::make_shared<juce::MemoryOutputStream>();
+        const int s = job->stream;
+        const int total = s < 8 ? job->len[s / 2][s % 2] : job->clipN;
+        const float* src = s < 8 ? rt.ch[s / 2][s % 2] : rt.clip[s - 8];
+        if (job->at < 0) {
+            if (s < 8) {
+                chunk->writeInt(total);
+            } else if (s == 8) {
+                chunk->writeInt(job->clipN);
+            }
+            job->at = 0;
+        }
+        const int k = juce::jmin(kSaveChunkFrames, total - job->at);
+        if (k > 0) {
+            writeFloats(*chunk, src + job->at, k);
+            job->at += k;
+        }
+        if (job->at >= total) {
+            ++job->stream;
+            job->at = -1;
+        }
+        const size_t bytes = chunk->getDataSize();
+        const size_t alive = (saveBytes_ += bytes);
+        size_t peak = savePeak_.load();
+        while (alive > peak && !savePeak_.compare_exchange_weak(peak, alive)) {
+        }
+        ++saveIo_;
+        io_.addJob([this, job, chunk, bytes] {
+            if (!job->cancelled.load() && !job->failed.load() &&
+                (job->file == nullptr || !job->file->write(chunk->getData(), chunk->getDataSize()))) {
+                job->failed.store(true);
+            }
+            saveBytes_ -= bytes;
+            --saveIo_;
         });
+    }
+    if (job->stream < 10) {
+        return;
+    }
+    saveJob_.reset();   // all copied: the io thread finishes it
+    ++saveIo_;
+    const SlotStore* store = &slots_;
+    io_.addJob([this, job, store] {
+        bool ok = false;
+        if (job->file != nullptr) {
+            job->file->flush();
+            ok = !job->cancelled.load() && !job->failed.load() && job->file->getStatus().wasOk();
+            job->file.reset();
+        }
+        ok = ok && job->tmp.moveFileTo(job->target) && store->setLastSlot(job->slot);
+        if (!ok) {
+            job->tmp.deleteFile();
+        }
+        if (job->done) {
+            juce::MessageManager::callAsync([done = job->done, ok] { done(ok); });
+        }
+        --saveIo_;
+    });
+}
+
+void LiftProcessor::cancelSave() {
+    auto job = std::exchange(saveJob_, nullptr);
+    if (job == nullptr) {
+        return;
+    }
+    job->cancelled.store(true);
+    ++saveIo_;
+    io_.addJob([this, job] {
+        job->file.reset();
+        job->tmp.deleteFile();
+        if (job->done) {
+            juce::MessageManager::callAsync([done = job->done] { done(false); });
+        }
+        --saveIo_;
     });
 }
 

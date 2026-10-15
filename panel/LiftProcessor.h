@@ -239,13 +239,24 @@ public:
     bool saveSlot(int slot);
     // The same, with the file written on a background thread so the message
     // thread never waits on the disk; `done` runs on the message thread.
+    // The tape is written in chunks (kSaveChunkFrames per channel at most,
+    // kSaveChunksInFlight queued): the message thread copies one small chunk
+    // at a time from the live tape and the io thread appends it to a temp
+    // file, renamed over the slot at the end. No full-tape copy, so no freeze
+    // and no ~92 MB memory spike. A load or a newer save cancels it.
     void saveSlotAsync(int slot, std::function<void(bool)> done);
+    static constexpr int kSaveChunkFrames = 1 << 18;   // 1 MB of floats
+    static constexpr int kSaveChunksInFlight = 4;
+    bool saveBusy() const noexcept { return saveJob_ != nullptr || saveIo_.load() > 0; }
+    void pumpSave();                         // the timer calls it; tests may too
+    size_t savePeakBytes() const noexcept { return savePeak_.load(); }
     LoadResult loadSlot(int slot);
     bool reopenLast();                  // load the slot saved or loaded last
     int currentSlot() const noexcept { return currentSlot_; }
     SlotStore& slots() noexcept { return slots_; }
     void setSlotFolder(const juce::File& f) { slots_ = SlotStore(f); }
     juce::MemoryBlock saveState();
+    struct SaveJob;
     LoadResult loadState(const void* data, size_t size, int slot);
 
     // ---- MIDI (see panel/MIDI.md) ----
@@ -447,6 +458,11 @@ private:
     Listener* listener_ = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LiftProcessor)
+    std::shared_ptr<SaveJob> saveJob_;           // message thread only
+    std::atomic<int> saveIo_{0};                 // io jobs not finished yet
+    std::atomic<size_t> saveBytes_{0}, savePeak_{0};  // chunk bytes alive (memory spike)
+    void writeStateHeader(juce::MemoryOutputStream& out, int (&len)[4][2], int& clipN);
+    void cancelSave();
     // last member: destroyed first, so a save in flight finishes while the rest is alive
     juce::ThreadPool io_{1};
 };
