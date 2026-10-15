@@ -7,10 +7,12 @@
 
 #include "LiftProcessor.h"
 #include "MiniControls.h"
+#include "MiniLayout.h"
+#include "ShiftState.h"
 
 namespace mini {
 
-constexpr int kW = 480, kH = 272;
+inline constexpr int kW = kScreenW, kH = kScreenH;
 
 class MiniUi : public juce::Component, private juce::Timer {
 public:
@@ -22,7 +24,7 @@ public:
     bool keyStateChanged(bool isDown) override;
     void setStatus(const juce::String& s) { status_ = s; }
 
-    enum Mode { Synth, Drum, Tape, Mix };
+    enum Mode { Synth, Drum, Tape, Mix, Radio };
 
 private:
     void timerCallback() override;
@@ -36,13 +38,22 @@ private:
     void paintDrum(juce::Graphics&, juce::Rectangle<float>);
     void paintMix(juce::Graphics&, juce::Rectangle<float>);
     void paintFoot(juce::Graphics&, juce::Rectangle<float>);
+    void paintRadio(juce::Graphics&, juce::Rectangle<float>);
+    void paintSources(juce::Graphics&, juce::Rectangle<float>);
+    void say(juce::String s);
+    double now() const { return juce::Time::getMillisecondCounterHiRes(); }
 
     lift::LiftProcessor& proc_;
     Mode mode_ = Tape;
     int page_ = 0;
     int octave_ = 0;
     int track_ = 0;
-    bool shift_ = false;
+    ShiftState shift_;
+    bool sh() const { return shift_.active(); }
+    bool sourcesOpen_ = false;   // SHIFT + REC: the source list
+    int sourceSel_ = 0;          // 0 INTERNAL, 1 RADIO, 2 MASTER
+    int source_ = 0;
+    float radioKnob_[4] = {0.f, 0.f, 0.5f, 0.f};  // TUNE, PRESET, LEVEL, MONO
     bool mute_[4] = {};
     float knob_[5][4] = {};
     lift::LiftProcessor::ClipPtr clip_;

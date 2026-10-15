@@ -83,3 +83,6 @@ void tape_drop(TapeRuntime& rt, bool overdub) {
         }
     }
 }
+
+int tape_edge_len(int n) noexcept { return edge_len(n); }
+float tape_edge_gain(int i, int n, int edge) noexcept { return edge_gain(i, n, edge); }

@@ -14,7 +14,7 @@ echo "== packages"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake ninja-build git pkg-config \
-  libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+  libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libcurl4-openssl-dev \
   libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev
 
 echo "== build (first build takes ~15-25 min on a Pi 5, longer on a Pi 4)"

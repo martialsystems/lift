@@ -98,6 +98,25 @@ void LiftPanel::advance(double dtD) {
     // state sync with the processor: push panel changes; MIDI start/stop
     // moved the tape, so the transport keys follow
     pushUi();
+    {
+        // RADIO source: on the IN screen with RADIO picked, STATION 01-05
+        // tunes (radio.json; standalone only). It keeps playing on other
+        // screens and stops when IN picks another input. Status changes flash.
+        const int want = sel_[In] != 2 ? -1
+                         : mode_ == In ? juce::jmin(4, static_cast<int>(std::floor(enc_[In][0] * 5.f)))
+                                       : radioTuned_;
+        if (want != radioTuned_) {
+            radioTuned_ = want;
+            proc_.setRadioStation(want);
+        }
+        if (auto* r = proc_.radio(); r != nullptr && want >= 0) {
+            const auto s = r->status();
+            if (s != radioSaid_) {
+                radioSaid_ = s;
+                flash(s);
+            }
+        }
+    }
     const int ts = proc_.transportSerial.load();
     if (ts != seenTransport_) {
         seenTransport_ = ts;

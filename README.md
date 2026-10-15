@@ -21,6 +21,7 @@ The screen is drawn for this instrument. One object per encoder. Compact shows a
 - Rev reverses the armed track. Rev again, or Stop, plays forward.
 - Bay opens the patch screen. Audio keeps running.
 - Radio opens the dial on the In screen.
+- LIFT Mini (the `mini/` standalone) ships these names too: Spring, Dice, Cassette, Pulse, Grain and Radio.
 
 ## Tape
 

@@ -5,7 +5,7 @@
 // its 38 controls (24 keys, 10 buttons, 4 push encoders).
 //
 //   LIFT_Mini [--kiosk] [--fps N] [--size WxH] [--audio ALSA|JACK]
-//             [--device NAME] [--buffer N] [--gpio FILE] [--screenshot FILE.png]
+//             [--device NAME] [--buffer N] [--gpio FILE] [--screenshot FILE.png [--view radio]]
 #include "MiniUi.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -69,8 +69,17 @@ public:
             // headless check: run the engine offline a moment, draw one frame, save it
             proc_->prepareToPlay(48000.0, 256);
             ui_->setSize(w, h);
-            ui_->handle({mini::Event::Turn, 0, 10});
-            ui_->handle({mini::Event::Turn, 2, -6});
+            if (arg(a, "--view") == "radio") {  // SHIFT + REC, pick RADIO, open it; let the stream start
+                ui_->handle({mini::Event::Button, int(mini::Btn::Shift), 1});
+                ui_->handle({mini::Event::Button, int(mini::Btn::Rec), 1});
+                ui_->handle({mini::Event::Button, int(mini::Btn::Shift), 0});
+                ui_->handle({mini::Event::Turn, 0, 1});
+                ui_->handle({mini::Event::Push, 0, 1});
+                Thread::sleep(4000);
+            } else {
+                ui_->handle({mini::Event::Turn, 0, 4});
+                ui_->handle({mini::Event::Turn, 2, -6});
+            }
             auto img = ui_->createComponentSnapshot(ui_->getLocalBounds(), true, 1.f);
             File f(File::getCurrentWorkingDirectory().getChildFile(shot));
             f.deleteFile();

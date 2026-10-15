@@ -41,6 +41,7 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/LiftSlots.cpp
     ${LIFT_ROOT}/panel/SlotStore.cpp
     ${LIFT_ROOT}/panel/UiState.cpp
+    ${LIFT_ROOT}/panel/radio/RadioSource.cpp
 )
 juce_add_binary_data(lift_fonts
     HEADER_NAME LiftFontData.h
@@ -80,26 +81,28 @@ juce_add_plugin(LiftApp
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
+    NEEDS_CURL TRUE
     FORMATS ${LIFT_APP_FORMATS}
 )
 target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES} ${LIFT_ROOT}/panel/StandaloneApp.cpp)
 target_include_directories(LiftApp PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ENGINE_INCLUDES})
 target_compile_definitions(LiftApp PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
 target_link_libraries(LiftApp PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 # Headless check: renders the panel screens to PNG and drives the panel
 # actions (REC+PLAY with a note, STOP, LIFT, DROP) against the engine.
-juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check")
+juce_add_console_app(lift_panel_check VERSION 0.1.0 PRODUCT_NAME "lift_panel_check" NEEDS_CURL TRUE)
 target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIFT_ROOT}/tests/panel_state.cpp ${LIFT_ROOT}/tests/ui_bench.cpp ${LIFT_ROOT}/tests/knob_check.cpp ${LIFT_ROOT}/tests/demo_render.cpp ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES})
 target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ENGINE_INCLUDES})
 target_compile_definitions(lift_panel_check PRIVATE
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(lift_panel_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 add_test(NAME lift_panel_check COMMAND lift_panel_check)
+set_tests_properties(lift_panel_check PROPERTIES ENVIRONMENT LIFT_RADIO_OFF=1)  # no network in the panel checks
 
 option(LIFT_BUILD_MINI "Build the LIFT Mini standalone (Raspberry Pi target)" ON)
 if(LIFT_BUILD_MINI)

@@ -253,6 +253,8 @@ public:
     int lastDest() const { return lastDest_; }
     void exportTo(const juce::File& folder);  // standalone: clip, T1-T4, master as 24-bit WAV
 private:
+    int radioTuned_ = -1;        // RADIO source: the station the IN screen tuned (-1 off)
+    juce::String radioSaid_;
     juce::String info_;
 
     Drag drag_;

@@ -127,6 +127,21 @@ void transport_set_varispeed(TapeRuntime& rt, float speed) noexcept {
     rt.varispeed = speed;
 }
 
+void transport_bipolar_speed(TapeRuntime& rt, float target) noexcept {
+    const float mag = target < 0.f ? -target : target;
+    const bool stop = mag < kStopBand;
+    const bool wantRev = stop ? rt.reverse : target < 0.f;
+    float v = stop ? 0.f : (mag > kMaxVarispeed ? kMaxVarispeed : mag);
+    if (wantRev != rt.reverse) {
+        if (rt.engine.speedNow > kFlipSpeed) {
+            v = 0.f;  // glide down first
+        } else {
+            rt.reverse = wantRev;
+        }
+    }
+    rt.varispeed = v;
+}
+
 void transport_rev(TapeRuntime& rt) noexcept {
     rt.reverse = !rt.reverse;
 }
@@ -233,8 +248,10 @@ float read_looped(const float* buf, int frames, double pos, int loopStart, int l
     if (!reverse && rel > len - fade) {
         const double into = rel - (len - fade);
         const float t = static_cast<float>(into / fade);
+        // the audio that leads into loopStart (where the head lands after the
+        // wrap), so the wet side moves forward with the dry side
         double wetPos = static_cast<double>(loopStart) + into - fade;
-        if (wetPos < static_cast<double>(loopStart)) {
+        if (wetPos < 0.0) {
             wetPos = static_cast<double>(loopStart);
         }
         const float dry = lerp_clamp(buf, frames, dryPos);
@@ -243,12 +260,12 @@ float read_looped(const float* buf, int frames, double pos, int loopStart, int l
     }
     if (reverse && rel < fade) {
         const float t = static_cast<float>((fade - rel) / fade);
-        double wetPos = static_cast<double>(loopEnd) - rel;
-        if (wetPos > static_cast<double>(loopEnd - 1)) {
+        // reverse: the audio just past loopEnd, read backwards (rel falls,
+        // so wetPos falls too) and landing on loopEnd at the wrap. The old
+        // code read loopEnd - rel, which ran forwards against the dry side.
+        double wetPos = static_cast<double>(loopEnd) + rel;
+        if (wetPos > static_cast<double>(frames - 1)) {
             wetPos = static_cast<double>(loopEnd - 1);
-        }
-        if (wetPos < static_cast<double>(loopStart)) {
-            wetPos = static_cast<double>(loopStart);
         }
         const float dry = lerp_clamp(buf, frames, dryPos);
         const float wet = lerp_clamp(buf, frames, wetPos);

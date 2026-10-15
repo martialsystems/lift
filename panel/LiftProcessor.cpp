@@ -135,6 +135,8 @@ LiftProcessor::LiftProcessor()
 
 LiftProcessor::~LiftProcessor() {
     stopTimer();
+    radio_.store(nullptr);
+    radioOwner_.reset();
     release_tracks(*rt_);
     tape_engine_release(monitor_);
 }
@@ -209,11 +211,201 @@ void LiftProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
 }
 
 void LiftProcessor::send(Cmd c, int a, int b, double v) noexcept {
-    const auto scope = fifo_.write(1);
-    if (scope.blockSize1 > 0) {
-        cmds_[scope.startIndex1] = Command{c, a, b, v};
-    } else if (scope.blockSize2 > 0) {
-        cmds_[scope.startIndex2] = Command{c, a, b, v};
+    flushBacklog();
+    const Command cmd{c, a, b, v};
+    if (backlog_.empty()) {
+        const auto scope = fifo_.write(1);
+        if (scope.blockSize1 > 0) {
+            cmds_[scope.startIndex1] = cmd;
+            return;
+        }
+        if (scope.blockSize2 > 0) {
+            cmds_[scope.startIndex2] = cmd;
+            return;
+        }
+    }
+    // full: keep it, in order, for the next flush; never drop a press
+    const int n = queueOverflows.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (n == 1 || n % 100 == 0) {
+        DBG("LIFT: command queue full, " << n << " commands held back so far");
+    }
+    try {
+        backlog_.push_back(cmd);
+    } catch (...) {
+    }
+}
+
+void LiftProcessor::flushBacklog() noexcept {
+    size_t k = 0;
+    while (k < backlog_.size()) {
+        const auto scope = fifo_.write(1);
+        if (scope.blockSize1 > 0) {
+            cmds_[scope.startIndex1] = backlog_[k];
+        } else if (scope.blockSize2 > 0) {
+            cmds_[scope.startIndex2] = backlog_[k];
+        } else {
+            break;
+        }
+        ++k;
+    }
+    if (k > 0) {
+        backlog_.erase(backlog_.begin(), backlog_.begin() + static_cast<std::ptrdiff_t>(k));
+    }
+}
+
+// ------------------------------------------------------------------ copy jobs
+
+bool LiftProcessor::isCopyCmd(Cmd c) noexcept {
+    return c == Cmd::Lift || c == Cmd::LiftAll || c == Cmd::Drop || c == Cmd::DropClip || c == Cmd::UndoDrop ||
+           c == Cmd::UndoAudio;
+}
+
+void LiftProcessor::startJob(const Command& c) noexcept {
+    TapeRuntime& rt = *rt_;
+    Job j;
+    if (c.cmd == Cmd::Lift || c.cmd == Cmd::LiftAll) {
+        if (rt.clip[0] == nullptr || rt.frames <= 0) return;
+        int start = 0, end = rt.frames;
+        if (rt.loopEnd > rt.loopStart) {
+            start = rt.loopStart;
+            end = juce::jmin(rt.loopEnd, rt.frames);
+        }
+        if (end - start <= 0) return;
+        j.kind = c.cmd == Cmd::Lift ? JobKind::Lift : JobKind::LiftAll;
+        j.start = start;
+        j.n = end - start;
+        j.track = rt.arm;
+    } else if (c.cmd == Cmd::Drop) {
+        const int start = static_cast<int>(rt.pos);
+        if (rt.clipFrames <= 0 || rt.clip[0] == nullptr || start < 0 || start >= rt.frames || undo_[0] == nullptr) return;
+        j.kind = JobKind::Drop;
+        j.start = start;
+        j.clipN = rt.clipFrames;
+        j.n = juce::jmin(rt.clipFrames, rt.frames - start);
+        if (j.n < rt.clipFrames) rt.clipped = true;
+        j.edge = tape_edge_len(rt.clipFrames);
+        j.track = rt.arm;
+        undoStart_ = -1;  // the backup is being rewritten
+    } else if (c.cmd == Cmd::DropClip) {
+        const eng::Clip* clip = pendingDrop_.exchange(nullptr);
+        if (clip == nullptr || rt.frames <= 0 || undo_[0] == nullptr) return;
+        const bool loop = rt.loopEnd > rt.loopStart;
+        j.kind = JobKind::DropClip;
+        j.clip = clip;
+        j.lo = loop ? rt.loopStart : 0;
+        j.span = loop ? juce::jmin(rt.loopEnd, rt.frames) - j.lo : rt.frames;
+        if (j.span <= 0) return;
+        j.start = juce::jlimit(j.lo, j.lo + j.span - 1, static_cast<int>(rt.pos));
+        j.n = juce::jmin(clip->frames(), j.span);
+        j.track = juce::jlimit(0, kTrackCount - 1, c.a);
+        undoStart_ = -1;
+    } else {  // UndoDrop / UndoAudio
+        if (undoStart_ < 0) return;
+        j.kind = JobKind::Undo;
+        j.n = undoFrames_;
+    }
+    job_ = j;
+    jobBusy_.store(true, std::memory_order_relaxed);
+}
+
+bool LiftProcessor::stepJob(int frames) noexcept {
+    TapeRuntime& rt = *rt_;
+    Job& j = job_;
+    if (j.kind == JobKind::None) return true;
+    const int from = j.done;
+    const int to = static_cast<int>(juce::jmin<juce::int64>(j.n, static_cast<juce::int64>(j.done) + frames));
+    switch (j.kind) {
+    case JobKind::None:
+        break;
+    case JobKind::Lift:
+        for (int c = 0; c < 2; ++c) {
+            const float* src = rt.ch[j.track][c] + j.start;
+            for (int i = from; i < to; ++i) rt.clip[c][i] = src[i];
+        }
+        if (to == j.n) rt.clipFrames = j.n;
+        break;
+    case JobKind::LiftAll:
+        for (int c = 0; c < 2; ++c) {
+            for (int i = from; i < to; ++i) {
+                float sum = 0.f;
+                for (int t = 0; t < kTrackCount; ++t) sum += rt.ch[t][c][j.start + i];
+                rt.clip[c][i] = sum;
+            }
+        }
+        if (to == j.n) rt.clipFrames = j.n;
+        break;
+    case JobKind::Drop:
+        for (int c = 0; c < 2; ++c) {
+            float* x = rt.ch[j.track][c] + j.start;
+            float* bak = undo_[c].get();
+            const float* src = rt.clip[c];
+            for (int i = from; i < to; ++i) {
+                bak[i] = x[i];
+                x[i] += src[i] * tape_edge_gain(i, j.clipN, j.edge);
+            }
+        }
+        if (to == j.n) {
+            undoStart_ = j.start;
+            undoFrames_ = j.n;
+            undoTrack_ = j.track;
+            undoSpan_ = 0;
+        }
+        break;
+    case JobKind::DropClip:
+        for (int c = 0; c < 2; ++c) {
+            float* x = rt.ch[j.track][c];
+            float* bak = undo_[c].get();
+            const float* src = c == 0 ? j.clip->l.data() : j.clip->r.data();
+            for (int i = from; i < to; ++i) {
+                const int idx = j.lo + (j.start - j.lo + i) % j.span;
+                bak[i] = x[idx];
+                x[idx] += src[i];
+            }
+        }
+        if (to == j.n) {
+            undoStart_ = j.start;
+            undoFrames_ = j.n;
+            undoTrack_ = j.track;
+            undoLo_ = j.lo;
+            undoSpan_ = j.span;
+        }
+        break;
+    case JobKind::Undo:
+        for (int c = 0; c < 2; ++c) {
+            float* x = rt.ch[undoTrack_][c];
+            const float* src = undo_[c].get();
+            for (int i = from; i < to; ++i) {
+                const int idx = undoSpan_ > 0 ? undoLo_ + (undoStart_ - undoLo_ + i) % undoSpan_ : undoStart_ + i;
+                if (idx >= 0 && idx < rt.frames) x[idx] = src[i];
+            }
+        }
+        if (to == j.n) undoStart_ = -1;
+        break;
+    }
+    j.done = to;
+    if (to >= j.n) {
+        j = Job{};
+        jobBusy_.store(false, std::memory_order_relaxed);
+        return true;
+    }
+    return false;
+}
+
+void LiftProcessor::runJobs() noexcept {
+    int budget = kJobFrames;
+    while (budget > 0) {
+        if (job_.kind == JobKind::None) {
+            if (deferredN_ == 0) return;
+            const Command c = deferred_[0];
+            for (int k = 1; k < deferredN_; ++k) deferred_[k - 1] = deferred_[k];
+            --deferredN_;
+            startJob(c);
+            continue;
+        }
+        const int before = job_.done;
+        const int left = job_.n - job_.done;
+        stepJob(budget);
+        budget -= juce::jmax(1, job_.kind == JobKind::None ? left : job_.done - before);
     }
 }
 
@@ -336,7 +528,27 @@ void LiftProcessor::stepKnobs(int n) noexcept {
 
 void LiftProcessor::apply(const Command& c) noexcept {
     TapeRuntime& rt = *rt_;
+    if (isCopyCmd(c.cmd)) {
+        if (job_.kind == JobKind::None && deferredN_ == 0) {
+            startJob(c);
+        } else {
+            if (deferredN_ == 64) {  // 64 copies waiting: finish the running one now rather than drop one
+                while (!stepJob(1 << 30)) {
+                }
+                runJobs();
+            }
+            if (deferredN_ < 64) deferred_[deferredN_++] = c;
+        }
+        return;
+    }
     switch (c.cmd) {
+    case Cmd::Lift:
+    case Cmd::Drop:
+    case Cmd::UndoAudio:
+    case Cmd::UndoDrop:
+    case Cmd::DropClip:
+    case Cmd::LiftAll:
+        break;  // copy jobs (startJob)
     case Cmd::Transport: {
         const bool play = c.a != 0;
         const bool rec = c.b != 0;
@@ -358,28 +570,6 @@ void LiftProcessor::apply(const Command& c) noexcept {
         rt.recording = false;
         transport_tape_stop(rt, kStopRampSeconds);
         break;
-    case Cmd::Lift:
-        tape_lift(rt);
-        break;
-    case Cmd::Drop: {
-        // keep what is about to be overdubbed so UNDO can put it back
-        const int start = static_cast<int>(rt.pos);
-        const int n = juce::jmin(rt.clipFrames, rt.frames - start);
-        if (undo_[0] != nullptr && n > 0 && start >= 0) {
-            for (int c = 0; c < 2; ++c) {
-                const float* src = rt.ch[rt.arm][c] + start;
-                float* dst = undo_[c].get();
-                for (int i = 0; i < n; ++i) {
-                    dst[i] = src[i];
-                }
-            }
-            undoStart_ = start;
-            undoFrames_ = n;
-            undoTrack_ = rt.arm;
-        }
-        tape_drop(rt, true);
-        break;
-    }
     case Cmd::UndoPass:
         // discard the overdub pass in progress (or the last one): restore
         // every frame it marked, in slices over the next blocks
@@ -391,50 +581,6 @@ void LiftProcessor::apply(const Command& c) noexcept {
             undoPassPos_ = 0;
         }
         break;
-    case Cmd::UndoAudio:
-    case Cmd::UndoDrop:
-        if (undoStart_ >= 0) {
-            for (int c = 0; c < 2; ++c) {
-                float* x = rt.ch[undoTrack_][c];
-                const float* src = undo_[c].get();
-                for (int i = 0; i < undoFrames_; ++i) {
-                    const int idx = undoSpan_ > 0 ? undoLo_ + (undoStart_ - undoLo_ + i) % undoSpan_ : undoStart_ + i;
-                    if (idx >= 0 && idx < rt.frames) x[idx] = src[i];
-                }
-            }
-            undoStart_ = -1;
-        }
-        break;
-    case Cmd::DropClip: {
-        // overdub the clip at the playhead, wrapped inside the loop region
-        // (2 ms fades at its edges are in the clip already); UNDO puts it back
-        const eng::Clip* clip = pendingDrop_.exchange(nullptr);
-        const int t = juce::jlimit(0, kTrackCount - 1, c.a);
-        if (clip == nullptr || rt.frames <= 0 || undo_[0] == nullptr) {
-            break;
-        }
-        const bool loop = rt.loopEnd > rt.loopStart;
-        const int lo = loop ? rt.loopStart : 0;
-        const int span = loop ? juce::jmin(rt.loopEnd, rt.frames) - lo : rt.frames;
-        const int start = juce::jlimit(lo, lo + span - 1, static_cast<int>(rt.pos));
-        const int n = juce::jmin(clip->frames(), span);
-        for (int ch = 0; ch < 2; ++ch) {
-            float* x = rt.ch[t][ch];
-            float* bak = undo_[ch].get();
-            const float* src = ch == 0 ? clip->l.data() : clip->r.data();
-            for (int i = 0; i < n; ++i) {
-                const int idx = lo + (start - lo + i) % span;
-                bak[i] = x[idx];
-                x[idx] += src[i];
-            }
-        }
-        undoStart_ = start;
-        undoFrames_ = n;
-        undoTrack_ = t;
-        undoLo_ = lo;
-        undoSpan_ = span;
-        break;
-    }
     case Cmd::SliceHit:
         if (const SliceKit* kit = sliceKit_.load(std::memory_order_acquire)) {
             if (c.a >= 0 && c.a < kit->count) {
@@ -458,28 +604,6 @@ void LiftProcessor::apply(const Command& c) noexcept {
         transport_stop(rt);
         rt.engine.ramp = 0.f;
         break;
-    case Cmd::LiftAll: {
-        int start = 0, end = rt.frames;
-        if (rt.loopEnd > rt.loopStart) {
-            start = rt.loopStart;
-            end = juce::jmin(rt.loopEnd, rt.frames);
-        }
-        const int n = end - start;
-        if (rt.clip[0] != nullptr && n > 0 && n <= rt.frames) {
-            for (int c = 0; c < 2; ++c) {
-                float* dst = rt.clip[c];
-                for (int i = 0; i < n; ++i) {
-                    float sum = 0.f;
-                    for (int t = 0; t < kTrackCount; ++t) {
-                        sum += rt.ch[t][c][start + i];
-                    }
-                    dst[i] = sum;
-                }
-            }
-            rt.clipFrames = n;
-        }
-        break;
-    }
     case Cmd::Clear:
         if (c.a >= 0 && c.a < kTrackCount) {
             clearTrack_ = c.a;
@@ -714,8 +838,30 @@ int LiftProcessor::gmDrumVoice(int note) noexcept {
     }
 }
 
+bool LiftProcessor::radioAllowed() const noexcept {
+    return wrapperType != wrapperType_VST3 && wrapperType != wrapperType_AudioUnit && wrapperType != wrapperType_VST &&
+           wrapperType != wrapperType_AAX && wrapperType != wrapperType_LV2;
+}
+
+void LiftProcessor::setRadioStation(int station) {
+    if (!radioAllowed()) return;
+    static const bool off = juce::SystemStats::getEnvironmentVariable("LIFT_RADIO_OFF", {}).isNotEmpty();
+    if (off) return;  // offline test runs
+    if (radioOwner_ == nullptr) {
+        if (station < 0) return;
+        radioOwner_ = std::make_unique<InternetRadioSource>(RadioList::load(RadioList::defaultFile()));
+        radio_.store(radioOwner_.get(), std::memory_order_release);
+    }
+    radioOwner_->tune(station);
+}
+
 void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     TapeRuntime& rt = *rt_;
+    radioLive_ = false;
+    if (RadioSource* r = radio_.load(std::memory_order_acquire); r != nullptr && r->station() >= 0) {
+        r->read(radioL_, radioR_, eng::kBlock);
+        radioLive_ = true;
+    }
     // patch changes: re-read the published plan only when it moved
     const uint32_t ver = patch.version();
     if (ver != patchSeq_ && (ver & 1u) == 0) {
@@ -744,6 +890,12 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     ctl.drumGateMs = drumGateMs.load(std::memory_order_relaxed);
     ctl.arm = arm;
     inst_.block(*this, ctl, outL, outR);
+    if (radioLive_ && recSource_ != 1) {  // RADIO heard (with REC source IN it is in the IN path instead)
+        for (int i = 0; i < eng::kBlock; ++i) {
+            outL[i] += radioL_[i];
+            outR[i] += radioR_[i];
+        }
+    }
     // the master safety limiter, then the always-on capture (what you hear)
     limiter_.process(outL, outR, eng::kBlock);
     capture_.write(outL, outR, eng::kBlock);
@@ -811,6 +963,12 @@ void LiftProcessor::inputBlock(const float* cableL, const float* cableR, float* 
         const float r = cableR != nullptr ? 0.2f * cableR[i] : l;
         outL[i] = l;
         outR[i] = r;
+    }
+    if (radioLive_ && m <= eng::kBlock) {
+        for (int i = 0; i < m; ++i) {
+            outL[i] += radioL_[i];
+            outR[i] += radioR_[i];
+        }
     }
 }
 
@@ -961,6 +1119,7 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
             apply(cmds_[scope.startIndex2 + k]);
         }
     }
+    runJobs();
     for (const auto meta : midi) {
         handleMidiIn(meta.getMessage(), meta.samplePosition);
     }
@@ -1020,7 +1179,15 @@ void LiftProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuf
         }
         vs += static_cast<float>(take / juce::jmax(1.0, inner));
     }
-    transport_set_varispeed(rt, vs);
+    if (bipolarSpeed.load(std::memory_order_relaxed)) {
+        float sv = signedSpeed.load(std::memory_order_relaxed);
+        if (vs != speed.load(std::memory_order_relaxed)) {  // SCRUB nudge, in the direction of travel
+            sv += (rt.reverse ? -1.f : 1.f) * (vs - speed.load(std::memory_order_relaxed));
+        }
+        transport_bipolar_speed(rt, sv);
+    } else {
+        transport_set_varispeed(rt, vs);
+    }
 
     for (int t = 0; t < 4; ++t) {
         trackPeak_[t] = 0.f;
@@ -1145,6 +1312,7 @@ void LiftProcessor::timerCallback() {
     if (pending > 0 && listener_ != nullptr) {
         listener_->stateLoaded(pending - 1);
     }
+    flushBacklog();
     drainMidiEvents();
 }
 
@@ -1357,6 +1525,9 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     recSource_ = s.recSource;
     undoStart_ = -1;
     clearTrack_ = -1;
+    job_ = Job{};
+    deferredN_ = 0;
+    jobBusy_.store(false);
     inst_.allOff();
     fifo_.reset();  // drop panel commands that predate the load
     uiPos.store(rt.pos);

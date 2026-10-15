@@ -52,22 +52,31 @@ float trimToTarget(float* l, float* r, int n, double fs, float targetLufs = kTar
 
 class CaptureRing {
 public:
-    void prepare(double fs, double seconds);  // allocates
+    // Allocates once (seconds + a guard); never resized or allocated after,
+    // so it is safe to call only before audio runs.
+    void prepare(double fs, double seconds);
     void reset() noexcept;
     // audio thread
     void write(const float* l, const float* r, int n) noexcept;
-    // message thread: the newest n frames (n <= capacity) into dst
+    // message thread: the newest n frames (n <= capacity) into dst. The
+    // write index is snapshotted first; the ring holds kGuardSeconds more than
+    // capacity(), so the writer can run that long ahead before it reaches
+    // the region being copied. A copy that took longer is checked after the
+    // fact and its overwritten head is zeroed (never torn audio).
     int read(float* l, float* r, int n, std::int64_t endFrame = -1) const noexcept;
+    static constexpr double kGuardSeconds = 2.0;
+    std::int64_t lastReadTorn() const noexcept { return torn_.load(); }
     std::int64_t written() const noexcept { return written_.load(std::memory_order_acquire); }
-    int capacity() const noexcept { return cap_; }
+    int capacity() const noexcept { return cap_ - guard_; }
     double rate() const noexcept { return fs_; }
     // short-term (last `seconds`) K-weighted loudness from the 100 ms blocks, LUFS
     float loudness(double seconds) const noexcept;
 
 private:
     double fs_ = 48000.0;
-    int cap_ = 0;
+    int cap_ = 0, guard_ = 0;
     std::vector<float> l_, r_;
+    mutable std::atomic<std::int64_t> torn_{0};
     std::atomic<std::int64_t> written_{0};
     KWeight kw_;
     double acc_ = 0.0;

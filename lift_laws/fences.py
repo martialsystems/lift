@@ -19,16 +19,17 @@ EFFECTS = ("Drip", "Echo", "Crush", "Tilt", "Accent", "Chorus", "Handset", "Spac
 SEQUENCERS = ("Steps", "Latch")
 CHARACTERS = ("Deck", "Pocket", "Shed", "Cap")
 DRUMS = ("Tap",)
+# LIFT Mini's shipped names (LIFT Mini sheet: the SPRING reverb, DICE,
+# the CASSETTE stage, PULSE, GRAIN, the RADIO source). Approved with the sheet.
+MINI = ("Spring", "Dice", "Cassette", "Pulse", "Grain", "Radio")
 GLYPH_OWNERS = ENGINES + DRUMS + EFFECTS + SEQUENCERS
-APPROVED = ENGINES + EFFECTS + SEQUENCERS + CHARACTERS + DRUMS
+APPROVED = ENGINES + EFFECTS + SEQUENCERS + CHARACTERS + DRUMS + MINI
 DRAFT = (
-    "Pulse",
     "Phase",
     "String",
     "Cluster",
     "Sampler",
     "Box",
-    "Spring",
     "Punch",
     "Phone",
     "Grid",
@@ -321,7 +322,7 @@ def _character_names(text: str) -> tuple[str, ...] | None:
 
 def _text_files(root: Path) -> list[Path]:
     files = [root / "README.md", root / "LICENSE"]
-    for folder in ("presets", "src"):
+    for folder in ("presets", "src", "mini"):
         base = root / folder
         if not base.is_dir():
             continue
@@ -397,8 +398,12 @@ def measure_names(root: Path) -> list[str]:
         except UnicodeError:
             problems.append(f"unreadable {path.relative_to(root)}")
             continue
+        rel = path.relative_to(root)
+        if rel.parts[0] == "mini" and path.suffix in {".h", ".cpp"}:
+            # Mini code is JUCE code (juce::String): only its shown text counts
+            text = "\n".join(re.findall(r'"((?:[^"\\\n]|\\.)*)"', text))
         for word in draft_words(text):
-            problems.append(f"{path.relative_to(root)}: {word}")
+            problems.append(f"{rel}: {word}")
     return problems
 
 

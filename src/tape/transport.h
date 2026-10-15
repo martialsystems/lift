@@ -91,6 +91,13 @@ void transport_reset_filters(TapeRuntime& rt) noexcept;
 void transport_tape_stop(TapeRuntime& rt, float seconds) noexcept;
 void transport_tape_start(TapeRuntime& rt, float seconds) noexcept;
 
+// Signed speed (reverse <-> stop <-> forward), e.g. LIFT Mini's yellow knob.
+// |target| < kStopBand is a stop (varispeed 0; the engine never divides by
+// speed). A sign change first glides the tape down to under kFlipSpeed and
+// only then flips direction, so the heads never jump from +x to -x.
+constexpr float kStopBand = 0.01f;
+constexpr float kFlipSpeed = 0.02f;
+void transport_bipolar_speed(TapeRuntime& rt, float target) noexcept;
 float read_looped(const float* buf, int frames, double pos, int loopStart, int loopEnd, bool reverse) noexcept;
 void transport_advance(TapeRuntime& rt, double rate) noexcept;
 double transport_next_pos(const TapeRuntime& rt, double pos, double rate) noexcept;

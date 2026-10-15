@@ -15,6 +15,7 @@
 #include <memory>
 
 struct TapeRuntime;
+#include "radio/RadioSource.h"
 #include "tape/engine.h"
 #include "engine/instrument.h"
 #include "engine/resample.h"
@@ -110,7 +111,14 @@ public:
     void setStateInformation(const void*, int) override;
 
     // ---- message thread API (the panel) ----
+    // Never drops a press: a full queue keeps the command in a message-thread
+    // backlog (flushed on the next send and by the 30 Hz timer) and counts it.
+    // Knobs do not use the queue (atomics, last value wins), so turns coalesce.
     void send(Cmd c, int a = 0, int b = 0, double v = 0.0) noexcept;
+    std::atomic<int> queueOverflows{0};
+    void flushBacklog() noexcept;
+    bool jobBusy() const noexcept { return jobBusy_.load(std::memory_order_relaxed); }
+    std::atomic<bool> jobBusy_{false};
     std::atomic<float> speed{1.f};     // SPEED knob, 0.25x .. 4x
     std::atomic<float> liftBack{4.f};  // LIFT encoder: seconds of the capture buffer the next LIFT keeps
     bool overdubbing() const noexcept { return uiRecording.load(std::memory_order_relaxed); }
@@ -178,6 +186,20 @@ public:
     void setKnobValue(int screen, int k, float v) noexcept;
     void setAllKnobs(const std::array<std::array<float, 4>, 5>& enc) noexcept;
     static constexpr double kScrubSeconds = 4.0;  // a full SCRUB sweep moves this much tape
+
+    // ---- RADIO source (standalone builds; the plug-ins have no radio) ----
+    // Message thread. station -1 turns it off. The radio plays into the IN
+    // path (REC source IN records it) and, otherwise, into the mix, before the
+    // capture: what you hear can be LIFTed.
+    void setRadioStation(int station);
+    RadioSource* radio() noexcept { return radioOwner_.get(); }
+    bool radioAllowed() const noexcept;
+
+    // ---- speed through zero (LIFT Mini's yellow knob) ----
+    // bipolarSpeed on: signedSpeed (-4 .. 0 .. +4) drives the tape instead
+    // of SPEED + REV. A direction change glides to a stop first.
+    std::atomic<bool> bipolarSpeed{false};
+    std::atomic<float> signedSpeed{1.f};
 
     // ---- saved state (message thread) ----
     // The panel's state. The panel pushes its changes here; loads, MIDI knob
@@ -267,6 +289,24 @@ public:
 
 private:
     void apply(const Command& c) noexcept;
+    // Long tape copies (LIFT, SHIFT+LIFT, DROP, DROP clip, UNDO) never run
+    // whole inside one callback: each becomes a job that moves at most
+    // kJobFrames frames per callback. Copy commands that arrive while a job
+    // runs wait in deferred_ (in order) and start when it finishes.
+    static constexpr int kJobFrames = 8192;
+    enum class JobKind : uint8_t { None, Lift, LiftAll, Drop, DropClip, Undo };
+    struct Job {
+        JobKind kind = JobKind::None;
+        int done = 0, n = 0, start = 0, track = 0, lo = 0, span = 0, edge = 0, clipN = 0;
+        const eng::Clip* clip = nullptr;
+    };
+    Job job_;
+    Command deferred_[64];
+    int deferredN_ = 0;
+    static bool isCopyCmd(Cmd c) noexcept;
+    void startJob(const Command& c) noexcept;
+    bool stepJob(int frames) noexcept;   // true when the job finished
+    void runJobs() noexcept;
     void ensureTracks();
     void renderInternal(float* outL, float* outR, int m) noexcept;  // any m, at 48 kHz, in 32-sample blocks
     void handleMidiIn(const juce::MidiMessage& m, int samplePos) noexcept;
@@ -275,11 +315,16 @@ private:
     std::atomic<int> pendingLoaded_{0};
 
     std::unique_ptr<TapeRuntime> rt_;
+    std::unique_ptr<RadioSource> radioOwner_;
+    std::atomic<RadioSource*> radio_{nullptr};
+    float radioL_[32] = {}, radioR_[32] = {};
+    bool radioLive_ = false;
     bool tracksReady_ = false;
     bool prepared_ = false;
     double sampleRate_ = 48000.0;
-    juce::AbstractFifo fifo_{256};
-    Command cmds_[256];
+    juce::AbstractFifo fifo_{1024};
+    Command cmds_[1024];
+    std::vector<Command> backlog_;      // message thread: commands the full queue could not take yet
     eng::Instrument inst_;
     eng::PatchPlan plan_;
     float jackLvl_[eng::kJacks] = {};

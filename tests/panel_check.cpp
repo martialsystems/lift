@@ -569,7 +569,7 @@ int main(int argc, char** argv) {
         p.undo();
         check(p.selectIsOpen() && p.selection() == def, "UNDO with SELECT open reverts the SELECT edit first");
         p.undo();
-        r.step(0.05);
+        r.step(0.5);  // UNDO restores in slices over the next callbacks (no long copy in one callback)
         check(trackRms(0, 0, 48000) < 1e-6, "the next UNDO takes the DROP back off T1");
         p.undo();
         check(p.keptClip() == nullptr && !p.selectIsOpen(), "then the KEEP");

@@ -208,7 +208,8 @@ float trimToTarget(float* l, float* r, int n, double fs, float targetLufs, float
 
 void CaptureRing::prepare(double fs, double seconds) {
     fs_ = fs;
-    cap_ = static_cast<int>(fs * seconds);
+    guard_ = static_cast<int>(fs * kGuardSeconds);
+    cap_ = static_cast<int>(fs * seconds) + guard_;
     l_.assign(static_cast<size_t>(cap_), 0.f);
     r_.assign(static_cast<size_t>(cap_), 0.f);
     blockLen_ = static_cast<int>(fs / 10.0);
@@ -247,13 +248,20 @@ void CaptureRing::write(const float* l, const float* r, int n) noexcept {
 }
 
 int CaptureRing::read(float* l, float* r, int n, std::int64_t endFrame) const noexcept {
+    if (cap_ <= 0) return 0;
     const std::int64_t w = endFrame < 0 ? written() : std::min(endFrame, written());
-    n = static_cast<int>(std::min<std::int64_t>({static_cast<std::int64_t>(n), w, static_cast<std::int64_t>(cap_)}));
+    n = static_cast<int>(std::min<std::int64_t>({static_cast<std::int64_t>(n), w, static_cast<std::int64_t>(cap_ - guard_)}));
     const std::int64_t from = w - n;
     for (int i = 0; i < n; ++i) {
         const size_t k = static_cast<size_t>((from + i) % cap_);
         l[i] = l_[k];
         r[i] = r_[k];
+    }
+    // frames the writer may have lapped while we copied: from < now - cap_
+    const std::int64_t lost = std::min<std::int64_t>(n, written() - cap_ - from);
+    if (lost > 0) {
+        for (std::int64_t i = 0; i < lost; ++i) l[i] = r[i] = 0.f;
+        torn_.fetch_add(lost);
     }
     return n;
 }
