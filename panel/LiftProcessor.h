@@ -16,6 +16,7 @@
 
 struct TapeRuntime;
 #include "radio/RadioSource.h"
+#include "sysaudio/SystemAudioSource.h"
 #include "tape/engine.h"
 #include "engine/instrument.h"
 #include "engine/resample.h"
@@ -195,6 +196,15 @@ public:
     RadioSource* radio() noexcept { return radioOwner_.get(); }
     bool radioAllowed() const noexcept;
 
+    // ---- COMPUTER AUDIO (system loopback; standalone only) ----
+    // Message thread. Never sent to the output (you already hear the
+    // computer): it goes to the listen buffer, and to the IN path with REC
+    // source IN. A loopback that also hears LIFT replaces LIFT's output in the
+    // listen buffer rather than adding to it.
+    void setComputerAudio(bool on);
+    SystemAudioSource* computerAudio() noexcept { return sysOwner_.get(); }
+    void setComputerAudioBackend(std::unique_ptr<SystemCaptureBackend> b);  // tests: a fake backend
+
     // ---- speed through zero (LIFT Mini's yellow knob) ----
     // bipolarSpeed on: signedSpeed (-4 .. 0 .. +4) drives the tape instead
     // of SPEED + REV. A direction change glides to a stop first.
@@ -319,6 +329,10 @@ private:
     std::atomic<RadioSource*> radio_{nullptr};
     float radioL_[32] = {}, radioR_[32] = {};
     bool radioLive_ = false;
+    std::unique_ptr<SystemAudioSource> sysOwner_;
+    std::atomic<SystemAudioSource*> sys_{nullptr};
+    float sysL_[32] = {}, sysR_[32] = {}, capL_[32] = {}, capR_[32] = {};
+    bool sysLive_ = false;
     bool tracksReady_ = false;
     bool prepared_ = false;
     double sampleRate_ = 48000.0;

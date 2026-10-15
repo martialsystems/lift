@@ -156,3 +156,16 @@ To test the Mini's 1 GB target (from the parts sheet), set `total_mem=1024` in `
 
 - JUCE draws through X11. The default Pi OS desktop (Wayland) runs it through XWayland, which works. On a Lite image, install a minimal X server (`xserver-xorg xinit`) and start it with `startx /usr/local/bin/lift-mini --kiosk`.
 - These pieces are on the spec but not in this build yet: the Mini's page contents beyond page 1 of each mode (pages 2–4 show the same view), REDO, JACKS setup, the radio, and the FM tuner.
+
+## COMPUTER audio source
+
+SHIFT+REC → COMPUTER captures what the system is playing (standalone only)
+into the listen buffer so it can be LIFTed. It is never sent to LIFT's output.
+
+- Pi / Linux: needs PulseAudio or PipeWire (`pipewire-pulse`) and
+  `libpulse-simple.so.0` (`sudo apt install libpulse0`). It reads the default
+  output's monitor. Without it the source shows as unsupported.
+- macOS 14.2+: Core Audio process tap, LIFT's own output excluded. macOS asks
+  for "System Audio Recording" permission the first time.
+- Windows: WASAPI loopback on the default output.
+- `LIFT_RADIO_OFF=1` also disables computer audio (used by tests).

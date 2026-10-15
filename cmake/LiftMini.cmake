@@ -9,7 +9,8 @@ juce_add_gui_app(LIFT_Mini
     COMPANY_NAME "Martial Systems"
     PRODUCT_NAME "lift-mini"
     BUNDLE_ID com.martialsystems.liftmini
-    NEEDS_CURL TRUE)
+    NEEDS_CURL TRUE
+    PLIST_TO_MERGE "${LIFT_PLIST_MERGE}")
 target_sources(LIFT_Mini PRIVATE
     ${LIFT_ROOT}/mini/MiniApp.cpp ${LIFT_ROOT}/mini/MiniUi.cpp ${LIFT_ROOT}/mini/MiniControls.cpp
     ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES})
@@ -18,6 +19,9 @@ target_compile_definitions(LIFT_Mini PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_STANDALONE_APPLICATION=1
     JUCE_ALSA=1 JUCE_JACK=1 JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
+if(APPLE)
+    target_link_libraries(LIFT_Mini PRIVATE "-framework CoreAudio" "-framework Foundation")
+endif()
 target_link_libraries(LIFT_Mini PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 
@@ -30,3 +34,6 @@ target_compile_definitions(lift_mini_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_C
 target_link_libraries(lift_mini_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 add_test(NAME lift_mini_check COMMAND lift_mini_check)
+if(APPLE)
+    target_link_libraries(lift_mini_check PRIVATE "-framework CoreAudio" "-framework Foundation")
+endif()

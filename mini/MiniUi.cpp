@@ -19,7 +19,8 @@ static const char* kKnobNames[5][4] = {
     {"SPEED", "BIAS", "REC LVL", "POSITION"}, // TAPE
     {"LEVEL", "PAN", "LOW", "HIGH"},          // MIX
     {"TUNE", "PRESET", "LEVEL", "MONO"}};     // RADIO (sheet 4.5)
-static const char* kSources[] = {"INTERNAL", "RADIO", "MASTER"};
+static const char* kSources[] = {"INTERNAL", "RADIO", "COMPUTER", "MASTER"};
+static constexpr int kNumSources = 4;
 
 static Font label(float scale = 1.f) { return lift::ui::jost(600, L.font * scale, 0.06f); }
 
@@ -114,7 +115,7 @@ void MiniUi::key(int k, bool down) {
 void MiniUi::turn(int e, int detents) {
     const bool s = shift_.turn(e, now());
     if (sourcesOpen_) {
-        if (e == 0) sourceSel_ = jlimit(0, 2, sourceSel_ + (detents > 0 ? 1 : -1));
+        if (e == 0) sourceSel_ = jlimit(0, kNumSources - 1, sourceSel_ + (detents > 0 ? 1 : -1));
         return;
     }
     if (mode_ == Radio) {
@@ -149,13 +150,19 @@ void MiniUi::push(int e, bool down) {
         if (e == 0) {
             source_ = sourceSel_;
             sourcesOpen_ = false;
+            proc_.setComputerAudio(source_ == 2);
             if (source_ == 1) {
                 mode_ = Radio;
                 auto* r = proc_.radio();
                 proc_.setRadioStation(r != nullptr && r->station() >= 0 ? r->station() : 0);
             } else {
                 proc_.setRadioStation(-1);
-                proc_.send(lift::Cmd::RecSource, source_ == 2 ? 2 : 0);
+                proc_.send(lift::Cmd::RecSource, source_ == 3 ? 2 : 0);
+                if (source_ == 2) {
+                    auto* c = proc_.computerAudio();
+                    say(c == nullptr ? String("COMPUTER AUDIO: NOT AVAILABLE") : c->supported() ? String("COMPUTER AUDIO ON: LIFT KEEPS IT")
+                                                                                       : c->status());
+                }
             }
         }
         return;
@@ -355,10 +362,10 @@ void MiniUi::paintRadio(Graphics& g, Rectangle<float> r) {
 
 void MiniUi::paintSources(Graphics& g, Rectangle<float> r) {
     g.setFont(label(1.3f));
-    const float h = r.getHeight() / 4.f;
+    const float h = r.getHeight() / float(kNumSources + 1);
     g.setColour(col::dim);
     g.drawText("SOURCE  (YELLOW: PICK, PRESS: OPEN, SHIFT: BACK)", r.removeFromTop(h), Justification::centredLeft);
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < kNumSources; ++i) {
         auto row = r.removeFromTop(h).reduced(0.f, L.pad * 0.5f);
         if (i == sourceSel_) { g.setColour(col::knob[0]); g.fillRect(row.removeFromLeft(L.pad)); }
         g.setColour(i == sourceSel_ ? col::ink : col::dim);

@@ -117,6 +117,23 @@ void LiftPanel::advance(double dtD) {
             }
         }
     }
+    {
+        // COMPUTER AUDIO: IN pad 5 (an unused pad until now). Picked on the IN
+        // screen it turns on; it stays on elsewhere until IN picks another input.
+        const bool want = sel_[In] == 4 && (mode_ == In || computerOn_);
+        if (want != computerOn_) {
+            computerOn_ = want;
+            proc_.setComputerAudio(want);
+            if (want && proc_.computerAudio() == nullptr) flash("COMPUTER AUDIO: STANDALONE ONLY");
+        }
+        if (auto* c = proc_.computerAudio(); c != nullptr && want) {
+            const auto s = c->status();
+            if (s != computerSaid_) {
+                computerSaid_ = s;
+                flash(s);
+            }
+        }
+    }
     const int ts = proc_.transportSerial.load();
     if (ts != seenTransport_) {
         seenTransport_ = ts;

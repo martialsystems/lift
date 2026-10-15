@@ -255,6 +255,8 @@ public:
 private:
     int radioTuned_ = -1;        // RADIO source: the station the IN screen tuned (-1 off)
     juce::String radioSaid_;
+    bool computerOn_ = false;    // COMPUTER AUDIO source on (IN pad 5)
+    juce::String computerSaid_;
     juce::String info_;
 
     Drag drag_;

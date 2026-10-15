@@ -137,6 +137,8 @@ LiftProcessor::~LiftProcessor() {
     stopTimer();
     radio_.store(nullptr);
     radioOwner_.reset();
+    sys_.store(nullptr);
+    sysOwner_.reset();
     release_tracks(*rt_);
     tape_engine_release(monitor_);
 }
@@ -855,8 +857,30 @@ void LiftProcessor::setRadioStation(int station) {
     radioOwner_->tune(station);
 }
 
+void LiftProcessor::setComputerAudioBackend(std::unique_ptr<SystemCaptureBackend> b) {
+    sys_.store(nullptr);
+    sysOwner_ = std::make_unique<SystemAudioSource>(std::move(b));
+    sys_.store(sysOwner_.get(), std::memory_order_release);
+}
+
+void LiftProcessor::setComputerAudio(bool on) {
+    if (!radioAllowed()) return;  // standalone only, like RADIO
+    static const bool off = juce::SystemStats::getEnvironmentVariable("LIFT_RADIO_OFF", {}).isNotEmpty();
+    if (off) return;  // offline test runs: no network, no system capture
+    if (sysOwner_ == nullptr) {
+        if (!on) return;
+        setComputerAudioBackend(nullptr);
+    }
+    sysOwner_->setOn(on);
+}
+
 void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     TapeRuntime& rt = *rt_;
+    sysLive_ = false;
+    if (SystemAudioSource* sa = sys_.load(std::memory_order_acquire); sa != nullptr && sa->isOn()) {
+        sa->read(sysL_, sysR_, eng::kBlock);
+        sysLive_ = true;
+    }
     radioLive_ = false;
     if (RadioSource* r = radio_.load(std::memory_order_acquire); r != nullptr && r->station() >= 0) {
         r->read(radioL_, radioR_, eng::kBlock);
@@ -898,7 +922,17 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
     }
     // the master safety limiter, then the always-on capture (what you hear)
     limiter_.process(outL, outR, eng::kBlock);
-    capture_.write(outL, outR, eng::kBlock);
+    if (sysLive_) {
+        // COMPUTER AUDIO into the listen buffer only (never the output: no feedback)
+        const bool replace = sys_.load(std::memory_order_relaxed)->includesOwnOutput();
+        for (int i = 0; i < eng::kBlock; ++i) {
+            capL_[i] = replace ? sysL_[i] : outL[i] + sysL_[i];
+            capR_[i] = replace ? sysR_[i] : outR[i] + sysR_[i];
+        }
+        capture_.write(capL_, capR_, eng::kBlock);
+    } else {
+        capture_.write(outL, outR, eng::kBlock);
+    }
     uiLimiterGr.store(limiter_.gainReduction(), std::memory_order_relaxed);
     if (rt.passCount != lastPass_) {
         lastPass_ = rt.passCount;
@@ -968,6 +1002,14 @@ void LiftProcessor::inputBlock(const float* cableL, const float* cableR, float* 
         for (int i = 0; i < m; ++i) {
             outL[i] += radioL_[i];
             outR[i] += radioR_[i];
+        }
+    }
+    // COMPUTER AUDIO into IN only when the loopback leaves LIFT out (macOS
+    // tap): IN is monitored, so a loopback that hears LIFT would feed back
+    if (sysLive_ && m <= eng::kBlock && !sys_.load(std::memory_order_relaxed)->includesOwnOutput()) {
+        for (int i = 0; i < m; ++i) {
+            outL[i] += sysL_[i];
+            outR[i] += sysR_[i];
         }
     }
 }

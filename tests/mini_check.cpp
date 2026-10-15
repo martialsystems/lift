@@ -221,6 +221,95 @@ static void jobChecks() {
     check(restored, "jobs: DROP clip then UNDO in one go restores the track exactly (order kept)");
 }
 
+// A fake COMPUTER AUDIO backend: a 440 Hz tone at 44.1 kHz, paced like a
+// device (10 ms per read), optionally refusing to open.
+struct FakeCapture final : lift::SystemCaptureBackend {
+    bool fail = false, ownOut = false;
+    double phase = 0.0;
+    std::atomic<int> opens{0};
+    bool open(juce::String& why) override {
+        ++opens;
+        if (fail) { why = "permission denied"; return false; }
+        return true;
+    }
+    double sampleRate() const override { return 44100.0; }
+    int read(float* l, float* r, int maxFrames) override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const int n = std::min(maxFrames, 441);
+        for (int i = 0; i < n; ++i) {
+            l[i] = r[i] = 0.25f * float(std::sin(phase));
+            phase += 2.0 * 3.14159265358979 * 440.0 / 44100.0;
+        }
+        return n;
+    }
+    void close() override {}
+    bool includesOwnOutput() const override { return ownOut; }
+    juce::String name() const override { return "fake"; }
+};
+
+static double rmsOf(const float* x, int n) {
+    double e = 0;
+    for (int i = 0; i < n; ++i) e += double(x[i]) * x[i];
+    return n > 0 ? std::sqrt(e / n) : 0.0;
+}
+
+static void computerAudioChecks() {
+    {
+        lift::SystemAudioSource s(std::make_unique<FakeCapture>());
+        s.setOn(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        std::vector<float> l(4800), r(4800);
+        double worst = 0;
+        int got = 0;
+        // paced like a 48 kHz device: 480 frames every 10 ms (switching on
+        // drops stale audio, so the first reads wait out the 50 ms preroll)
+        for (int k = 0; k < 40; ++k) {
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            got = s.read(l.data(), r.data(), 480);
+            worst = std::max(worst, juce::Time::getMillisecondCounterHiRes() - t0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        check(got > 0 && rmsOf(l.data(), 480) > 0.01, "computer audio: fake capture arrives at 48 kHz through the ring (" + s.status().toStdString() + ")");
+        check(worst < 0.5, "computer audio: the audio-thread read never blocks (" + std::to_string(worst) + " ms)");
+        s.setOn(false);
+    }
+    {
+        auto f = std::make_unique<FakeCapture>();
+        f->fail = true;
+        lift::SystemAudioSource s(std::move(f));
+        s.setOn(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        std::vector<float> l(256, 1.f), r(256, 1.f);
+        const int got = s.read(l.data(), r.data(), 256);
+        check(got == 0 && l[0] == 0.f && s.status().containsIgnoreCase("permission denied"),
+              "computer audio: a refused backend = silence + a message (" + s.status().toStdString() + ")");
+    }
+    for (int own = 0; own < 2; ++own) {
+        lift::LiftProcessor p;
+        p.clearDrumPatterns();
+        p.prepareToPlay(48000.0, 256);
+        auto f = std::make_unique<FakeCapture>();
+        f->ownOut = own != 0;
+        p.setComputerAudioBackend(std::move(f));
+        p.setComputerAudio(true);
+        juce::AudioBuffer<float> buf(2, 256);
+        juce::MidiBuffer midi;
+        double outRms = 0;
+        for (int b = 0; b < 400; ++b) {  // ~2 s, paced near real time
+            buf.clear();
+            p.processBlock(buf, midi);
+            if (b > 100) outRms = std::max(outRms, rmsOf(buf.getReadPointer(0), 256));
+            std::this_thread::sleep_for(std::chrono::microseconds(5000));
+        }
+        auto clip = p.keepLast(1.0);
+        const double keep = clip ? rmsOf(clip->l.data(), clip->frames()) : 0.0;
+        const std::string tag = own ? " (loopback hears LIFT: replaces)" : " (tap leaves LIFT out: adds)";
+        check(outRms < 1e-4, "computer audio: never sent to the output, no feedback" + tag);
+        check(keep > 0.01, "computer audio: LIFT keeps it from the listen buffer" + tag + ", rms " + std::to_string(keep));
+        p.setComputerAudio(false);
+    }
+}
+
 static void radioCheck() {
     lift::InternetRadioSource r(lift::RadioList::defaults());
     r.tune(0);
@@ -287,6 +376,7 @@ int main(int argc, char** argv) {
         queueChecks();
         captureChecks();
         jobChecks();
+        computerAudioChecks();
     }
     // bench: three runs, each item's best worst-case (scheduler noise on shared machines)
     double budget = 0;

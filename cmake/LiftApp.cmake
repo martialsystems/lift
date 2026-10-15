@@ -42,7 +42,15 @@ set(LIFT_PANEL_SOURCES
     ${LIFT_ROOT}/panel/SlotStore.cpp
     ${LIFT_ROOT}/panel/UiState.cpp
     ${LIFT_ROOT}/panel/radio/RadioSource.cpp
+    ${LIFT_ROOT}/panel/sysaudio/SystemAudioSource.cpp
+    ${LIFT_ROOT}/panel/sysaudio/SystemCapturePlatform.cpp
 )
+if(APPLE)
+    list(APPEND LIFT_PANEL_SOURCES ${LIFT_ROOT}/panel/sysaudio/SystemCaptureMac.mm)
+    set_source_files_properties(${LIFT_ROOT}/panel/sysaudio/SystemCaptureMac.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+endif()
+# macOS asks before an app may capture other apps' audio (COMPUTER AUDIO)
+set(LIFT_PLIST_MERGE "<plist><dict><key>NSAudioCaptureUsageDescription</key><string>LIFT records what your computer is playing when you pick COMPUTER AUDIO as a source, so you can LIFT it.</string></dict></plist>")
 juce_add_binary_data(lift_fonts
     HEADER_NAME LiftFontData.h
     NAMESPACE LiftFontData
@@ -82,6 +90,7 @@ juce_add_plugin(LiftApp
     NEEDS_MIDI_OUTPUT TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
     NEEDS_CURL TRUE
+    PLIST_TO_MERGE "${LIFT_PLIST_MERGE}"
     FORMATS ${LIFT_APP_FORMATS}
 )
 target_sources(LiftApp PRIVATE ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES} ${LIFT_ROOT}/panel/StandaloneApp.cpp)
@@ -89,6 +98,9 @@ target_include_directories(LiftApp PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel $
 target_compile_definitions(LiftApp PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+if(APPLE)
+    target_link_libraries(LiftApp PRIVATE "-framework CoreAudio" "-framework Foundation")
+endif()
 target_link_libraries(LiftApp PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
@@ -99,6 +111,9 @@ target_sources(lift_panel_check PRIVATE ${LIFT_ROOT}/tests/panel_check.cpp ${LIF
 target_include_directories(lift_panel_check PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ENGINE_INCLUDES})
 target_compile_definitions(lift_panel_check PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+if(APPLE)
+    target_link_libraries(lift_panel_check PRIVATE "-framework CoreAudio" "-framework Foundation")
+endif()
 target_link_libraries(lift_panel_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 add_test(NAME lift_panel_check COMMAND lift_panel_check)
