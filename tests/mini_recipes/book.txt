@@ -222,12 +222,19 @@ recipe: SHIFT + white key 1 acts on slot 1
   expect toast has SLOT 1
 
 recipe: SHIFT + black keys are tools, not slots
-  known: SHIFT uses chromatic keys 1-8 as slots, so black keys save slots (sheet section 6: black keys are tools)
   button SYNTH tap
   button SHIFT down
   key b1 tap
   button SHIFT up
   expect toast lacks SAVED
+  expect toast has METRONOME
+
+recipe: SHIFT + white key 8 (C4) is slot 8
+  button SYNTH tap
+  button SHIFT down
+  key w8 tap
+  button SHIFT up
+  expect toast has SLOT 8
 
 # ================================================================ TAPE
 

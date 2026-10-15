@@ -119,6 +119,24 @@ void MiniUi::button(Btn b, bool down) {
     }
 }
 
+// SHIFT + keys, the keyboard as a menu (LIFT-Mini-Sheet section 6): white
+// keys 1-8 are slots, black keys are tools. Tools not built yet say so.
+void MiniUi::shiftKey(int k) {
+    static constexpr int kWhite[12] = {1, 0, 2, 0, 3, 4, 0, 5, 0, 6, 0, 7};   // 1-based in the octave, 0 = black
+    static constexpr int kBlack[12] = {0, 1, 0, 2, 0, 0, 3, 0, 4, 0, 5, 0};
+    const int pc = k % 12, oct = k / 12;
+    if (kWhite[pc] > 0) {
+        const int w = oct * 7 + kWhite[pc];
+        if (w <= 8) { proc_.saveSlotAsync(w, nullptr); say("SAVED SLOT " + String(w)); }
+        return;
+    }
+    static const char* const kTools[10] = {
+        "METRONOME", "COUNT-IN", "INPUT MONITOR", "SEQ TO TAPE SYNC", "SPLIT",
+        "JACKS SETUP", "USB MODE", "BATTERY", "SPARE", "SPARE"};
+    const int b = oct * 5 + kBlack[pc];   // 1..10
+    say(String(kTools[b - 1]) + ": NOT IN THIS BUILD");
+}
+
 void MiniUi::releaseHeldNotes() {
     for (auto& n : sounding_)
         if (n >= 0) { proc_.send(lift::Cmd::NoteOff, n, 100); n = -1; }
@@ -134,7 +152,7 @@ void MiniUi::key(int k, bool down) {
         return;
     }
     shift_.used();
-    if (sh() && down && k < 8) { proc_.saveSlotAsync(k + 1, nullptr); say("SAVED SLOT " + String(k + 1)); return; }
+    if (sh()) { shiftKey(k); return; }
     if (mode_ == Drum) {
         if (down) {
             if (proc_.sliceKitLoaded()) proc_.send(lift::Cmd::SliceHit, k, 110);
