@@ -138,6 +138,7 @@ juce::ValueTree UiState::toTree() const {
     t.setProperty("cassette", cassette, nullptr);
     t.setProperty("color", color, nullptr);
     t.setProperty("stack", stack, nullptr);
+    if (mini.isNotEmpty()) t.setProperty("mini", mini, nullptr);
     juce::ValueTree cs("Cords");
     for (const auto& c : cords) {
         juce::ValueTree ct("Cord");
@@ -239,6 +240,7 @@ UiState UiState::fromTree(const juce::ValueTree& t) {
     s.cassette = t.hasProperty("cassette") ? static_cast<bool>(t["cassette"]) : s.cassette;
     s.color = clampInt(t["color"], 0, 5, s.color);
     s.stack = t.getProperty("stack", s.stack);
+    s.mini = t.getProperty("mini", juce::String()).toString();
     const bool v31 = t["jacks"].toString() == "v31";
     const auto cs = t.getChildWithName("Cords");
     if (cs.isValid()) {

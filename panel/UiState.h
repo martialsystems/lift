@@ -46,6 +46,7 @@ struct UiState {
     bool cassette = false;  // the cassette stage (off: the looper plays clean)
     int color = 1;
     bool stack = false;
+    juce::String mini;      // LIFT Mini's own screen state (JSON); empty in full LIFT
     std::vector<Cord> cords;
     // the v3.1 pin matrix: [row * 16 + column], 0 none, 1 +100 %, 2 +50 %, 3 -100 %
     std::array<std::uint8_t, 256> pins{};

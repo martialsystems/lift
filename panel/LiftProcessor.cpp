@@ -1627,6 +1627,17 @@ LiftProcessor::LoadResult LiftProcessor::loadState(const void* data, size_t size
     return LoadResult::Ok;
 }
 
+void LiftProcessor::setMiniState(const juce::String& blob) {
+    const TapeRuntime& rt = *rt_;
+    ui_.mini = blob;
+    ui_.loop = rt.loopEnd > rt.loopStart;
+    ui_.loopIn = rt.loopStart;
+    ui_.loopOut = rt.loopEnd > rt.loopStart ? rt.loopEnd : ui_.loopOut;
+    ui_.arm = rt.arm;
+    ui_.character = rt.character;
+    ui_.sel[0] = synthEngine.load();
+}
+
 bool LiftProcessor::saveSlot(int slot) {
     if (!SlotStore::valid(slot)) {
         return false;

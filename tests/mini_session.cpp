@@ -140,12 +140,22 @@ int keyOf(const std::string& w) {
 class Session {
 public:
     Session(const Recipe& r, const fs::path& work, const fs::path& out) : r_(r), out_(out) {
-        proc_.clearDrumPatterns();
-        proc_.setSlotFolder(juce::File(work.string()).getChildFile("slots"));
-        proc_.prepareToPlay(kRate, kBlock);
-        ui_ = std::make_unique<mini::MiniUi>(proc_, 30);
+        static int n = 0;   // each recipe gets its own slot folder: a fresh Mini every time
+        slots_ = juce::File(work.string()).getChildFile("slots-" + std::to_string(++n));
+        slots_.deleteRecursively();
+        start();
+    }
+
+    // power on, as MiniApp does: reopen the last project, else a new one
+    void start() {
+        proc_ = std::make_unique<lift::LiftProcessor>();
+        proc_->clearDrumPatterns();
+        proc_->setSlotFolder(slots_);
+        proc_->prepareToPlay(kRate, kBlock);
+        ui_ = std::make_unique<mini::MiniUi>(*proc_, 30);
         ui_->setClock([this] { return clockMs_; });
         ui_->setSize(mini::kW, mini::kH);
+        ui_->boot();
     }
 
     ~Session() {
@@ -192,7 +202,8 @@ public:
 private:
     const Recipe& r_;
     fs::path out_;
-    lift::LiftProcessor proc_;
+    std::unique_ptr<lift::LiftProcessor> proc_;
+    juce::File slots_;
     std::unique_ptr<mini::MiniUi> ui_;
     double clockMs_ = 1000.0;
     int line_ = 0;
@@ -243,12 +254,12 @@ private:
             const int n = int(std::min<long>(kBlock, frames));
             buf.setSize(2, n, false, false, true);
             for (int i = 0; i < n; ++i) { float l, r; inputSample(l, r); buf.setSample(0, i, l); buf.setSample(1, i, r); }
-            proc_.flushBacklog();          // the processor's 30 Hz timer, which no message loop drives here
+            proc_->flushBacklog();          // the processor's 30 Hz timer, which no message loop drives here
             const double t0 = juce::Time::getMillisecondCounterHiRes();
-            proc_.processBlock(buf, pendingMidi_);
+            proc_->processBlock(buf, pendingMidi_);
             worstMs_ = std::max(worstMs_, juce::Time::getMillisecondCounterHiRes() - t0);
             pendingMidi_.clear();
-            proc_.drainMidiEvents();
+            proc_->drainMidiEvents();
             for (int i = 0; i < n; ++i) {
                 const float l = buf.getSample(0, i), r = buf.getSample(1, i);
                 if (!std::isfinite(l) || !std::isfinite(r)) { fail("output went NaN or inf"); return; }
@@ -283,9 +294,9 @@ private:
         if (v.page < 0 || v.page > 3) fail("page out of range: " + std::to_string(v.page));
         if (v.octave < -3 || v.octave > 3) fail("octave out of range: " + std::to_string(v.octave));
         if (v.track < 0 || v.track > 3) fail("track out of range: " + std::to_string(v.track));
-        const double pos = proc_.uiPos.load();
-        if (pos < 0.0 || pos > double(proc_.runtime().frames)) fail("playhead left the tape: " + std::to_string(pos));
-        if (!std::isfinite(proc_.signedSpeed.load())) fail("speed went NaN");
+        const double pos = proc_->uiPos.load();
+        if (pos < 0.0 || pos > double(proc_->runtime().frames)) fail("playhead left the tape: " + std::to_string(pos));
+        if (!std::isfinite(proc_->signedSpeed.load())) fail("speed went NaN");
     }
 
     // ---- metrics ----
@@ -303,7 +314,7 @@ private:
         return m;
     }
     std::vector<float> snapshot() {
-        auto& rt = proc_.runtime();
+        auto& rt = proc_->runtime();
         std::vector<float> s;
         for (int t = 0; t < 4; ++t) for (int c = 0; c < 2; ++c) s.insert(s.end(), rt.ch[t][c], rt.ch[t][c] + rt.frames);
         return s;
@@ -312,7 +323,7 @@ private:
     // Returns false (and records why) if the metric is unknown.
     bool value(const std::vector<std::string>& m, double& have) {
         const auto v = ui_->view();
-        auto& rt = proc_.runtime();
+        auto& rt = proc_->runtime();
         const std::string k = m.empty() ? "" : m[0];
         if (k == "mode") have = v.mode;
         else if (k == "page") have = v.page + 1;
@@ -334,20 +345,21 @@ private:
         else if (k == "mute" && m.size() > 1) { const int t = int(num(m, 1)) - 1; have = t >= 0 && t < 4 ? v.mute[t] : -1; }
         else if (k == "knob" && m.size() > 1) { const int e = encoderOf(m[1]); if (e < 0) { fail("knob: yellow, blue, black or red"); return false; } have = v.knob[e]; }
         else if (k == "sknob" && m.size() > 1) { const int e = encoderOf(m[1]); if (e < 0) { fail("sknob: yellow, blue, black or red"); return false; } have = v.knobS[e]; }
-        else if (k == "tempo") have = proc_.tempoBpm.load();
-        else if (k == "loop") have = (proc_.uiLoopEnd.load() - proc_.uiLoopStart.load()) / kRate;
+        else if (k == "tempo") have = proc_->tempoBpm.load();
+        else if (k == "engine") have = proc_->synthEngine.load();
+        else if (k == "loop") have = (proc_->uiLoopEnd.load() - proc_->uiLoopStart.load()) / kRate;
         else if (k == "character") have = rt.character;
         else if (k == "fader" && m.size() > 1) have = rt.fader[std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3)];
         else if (k == "pan" && m.size() > 1) { const int t = std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3); have = rt.panR[t] - rt.panL[t]; }
-        else if (k == "speed") have = proc_.signedSpeed.load();
-        else if (k == "playing") have = proc_.uiPlaying.load();
-        else if (k == "recording") have = proc_.uiRecording.load();
+        else if (k == "speed") have = proc_->signedSpeed.load();
+        else if (k == "playing") have = proc_->uiPlaying.load();
+        else if (k == "recording") have = proc_->uiRecording.load();
         else if (k == "arm") have = rt.arm + 1;
-        else if (k == "pos") have = proc_.uiPos.load() / kRate;
-        else if (k == "moved") have = (proc_.uiPos.load() - markPos_) / kRate;
-        else if (k == "note") have = proc_.uiSynthNote.load();
-        else if (k == "voices") { int n = 0; for (auto& e : proc_.uiVoiceEnv) n += e.load() > 1e-3f; have = n; }
-        else if (k == "drums") { int n = 0; for (auto& e : proc_.uiDrumEnv) n += e.load() > 1e-3f; have = n; }
+        else if (k == "pos") have = proc_->uiPos.load() / kRate;
+        else if (k == "moved") have = (proc_->uiPos.load() - markPos_) / kRate;
+        else if (k == "note") have = proc_->uiSynthNote.load();
+        else if (k == "voices") { int n = 0; for (auto& e : proc_->uiVoiceEnv) n += e.load() > 1e-3f; have = n; }
+        else if (k == "drums") { int n = 0; for (auto& e : proc_->uiDrumEnv) n += e.load() > 1e-3f; have = n; }
         else if (k == "out" && m.size() > 1) {
             if (m[1] == "rms") have = std::max(rmsOf(outL_), rmsOf(outR_));
             else if (m[1] == "peak") have = std::max(peakOf(outL_), peakOf(outR_));
@@ -362,10 +374,10 @@ private:
             std::vector<float> x(rt.ch[t][0] + a, rt.ch[t][0] + b);
             have = rmsOf(x);
         }
-        else if (k == "overflows") have = proc_.queueOverflows.load();
-        else if (k == "job_busy") have = proc_.jobBusy();
-        else if (k == "pool") have = double(proc_.pool().size());
-        else if (k == "slice_kit") have = proc_.sliceKitLoaded();
+        else if (k == "overflows") have = proc_->queueOverflows.load();
+        else if (k == "job_busy") have = proc_->jobBusy();
+        else if (k == "pool") have = double(proc_->pool().size());
+        else if (k == "slice_kit") have = proc_->sliceKitLoaded();
         else if (k == "block_ms") have = worstMs_;
         else if (k == "changed" && m.size() > 1) {
             auto it = snaps_.find(m[1]);
@@ -451,6 +463,14 @@ private:
             const double gap = arg(4).empty() ? 10.0 : num(w, 4, 10);
             if (one) for (int i = 0; i < std::abs(d); ++i) { send({Event::Turn, e, d > 0 ? 1 : -1}); advance(gap); }
             else send({Event::Turn, e, d});
+        } else if (c == "restart") {
+            // quit (the app saves the project) and power on again
+            for (int k : std::vector<int>(held_.begin(), held_.end())) keyDown(k, false);
+            ui_->saveNow();
+            ui_.reset();
+            proc_.reset();
+            start();
+            advance(20);
         } else if (c == "push") {
             const int e = encoderOf(arg(1));
             if (e < 0) { fail("push yellow|blue|black|red [down|up]"); return false; }
@@ -471,7 +491,7 @@ private:
         } else if (c == "run") {
             advance(1000.0 * num(w, 1));
         } else if (c == "mark") {
-            outL_.clear(); outR_.clear(); worstMs_ = 0; markPos_ = proc_.uiPos.load();
+            outL_.clear(); outR_.clear(); worstMs_ = 0; markPos_ = proc_->uiPos.load();
         } else if (c == "input") {
             const std::string kind = arg(1);
             if (kind == "silence") input_ = Input::Silence;
@@ -480,7 +500,7 @@ private:
             else { fail("input silence | sine HZ AMP | noise AMP"); return false; }
         } else if (c == "fill") {
             // fill track N sine HZ AMP: write straight onto the tape (setup only)
-            auto& rt = proc_.runtime();
+            auto& rt = proc_->runtime();
             const int t = int(num(w, 2)) - 1;
             if (t < 0 || t > 3) { fail("fill track 1-4 sine HZ AMP"); return false; }
             const double f = num(w, 4, 220), a = num(w, 5, 0.3);

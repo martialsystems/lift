@@ -226,6 +226,9 @@ public:
     };
     void setListener(Listener* l) noexcept { listener_ = l; }
     const UiState& uiState() const noexcept { return ui_; }
+    // LIFT Mini keeps its screen state in the project: the blob, plus the
+    // tape settings the Mini changes by command (loop, arm, character, engine)
+    void setMiniState(const juce::String& blob);
     void setUiState(const UiState& s);
     // patterns, drum knobs, FX, kit and engine: from a state to the engine (prev: send only changes)
     void applyExtras(const UiState& s, const UiState* prev);

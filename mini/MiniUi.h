@@ -17,7 +17,7 @@ namespace mini {
 
 inline constexpr int kW = kScreenW, kH = kScreenH;
 
-class MiniUi : public juce::Component, private juce::Timer {
+class MiniUi : public juce::Component, private juce::Timer, private lift::LiftProcessor::Listener {
 public:
     MiniUi(lift::LiftProcessor& p, int fps);
     ~MiniUi() override;
@@ -26,6 +26,12 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
     bool keyStateChanged(bool isDown) override;
     void setStatus(const juce::String& s) { status_ = s; }
+    // Start-up: reopen the last project where it was left, else a new one
+    // (SYNTH, LOOM, 100 BPM). saveNow() writes the project (on quit).
+    void boot();
+    void newProject();
+    bool saveNow();
+    int projectSlot() const { return proc_.currentSlot() > 0 ? proc_.currentSlot() : 1; }
 
     enum Mode { Synth, Drum, Tape, Mix, Radio };
 
@@ -82,6 +88,15 @@ private:
     void apply(int mode, int page, int side, int k);
     juce::String valueText(int side, int k) const;
     void setLoopBars(int bars);
+    void applyAll();
+    juce::String toJson() const;
+    void fromJson(const juce::String&);
+    // LiftProcessor::Listener
+    void flushState() override;
+    void stateLoaded(int slot) override;
+    void knobFromMidi(int, float) override {}
+    void learned(int, int) override {}
+    void slotMessage(const juce::String& t) override { say(t); }
     lift::LiftProcessor::ClipPtr clip_;
     juce::String status_, flash_;
     double flashUntil_ = 0;

@@ -31,9 +31,88 @@ MiniUi::MiniUi(lift::LiftProcessor& p, int fps) : proc_(p) {
     for (int t = 0; t < 4; ++t) val_[Mix][0][0][t] = 0.72f;   // unity
     val_[Mix][2][0][0] = tempoToKnob(proc_.tempoBpm.load());
     proc_.signedSpeed.store(bipolarKnobToSpeed(val_[Tape][0][0][0]));
+    proc_.setListener(this);
     startTimerHz(jlimit(5, 60, fps));
 }
-MiniUi::~MiniUi() { proc_.send(lift::Cmd::NoteOff, -1); }
+MiniUi::~MiniUi() {
+    proc_.setListener(nullptr);
+    proc_.send(lift::Cmd::NoteOff, -1);
+}
+
+void MiniUi::boot() {
+    if (!proc_.reopenLast()) newProject();
+}
+
+// A new project: SYNTH, LOOM, 100 BPM, no loop (LIFT-Mini decisions)
+void MiniUi::newProject() {
+    mode_ = Synth;
+    page_ = 0;
+    proc_.synthEngine.store(lift::eng::LOOM);
+    proc_.tempoBpm.store(100.0);
+    val_[Mix][2][0][0] = tempoToKnob(100.0);
+    val_[Tape][0][1][3] = 0.f;
+    proc_.send(lift::Cmd::LoopSet, 0, 0);
+    applyAll();
+}
+
+bool MiniUi::saveNow() {
+    return proc_.saveSlot(projectSlot());   // saveState() asks flushState() for the blob
+}
+
+void MiniUi::applyAll() {
+    for (int m = 0; m < 4; ++m)
+        for (int p = 0; p < kPageCount[m]; ++p)
+            for (int side = 0; side < 2; ++side)
+                for (int k = 0; k < 4; ++k)
+                    if (!(m == Tape && side == 1 && k == 3)) apply(m, p, side, k);   // the loop comes back with the tape
+    for (int t = 0; t < 4; ++t) proc_.send(lift::Cmd::Mute, t, mute_[t] ? 1 : 0);
+    proc_.send(lift::Cmd::Arm, track_);
+}
+
+String MiniUi::toJson() const {
+    auto* o = new DynamicObject();
+    o->setProperty("v", 1);
+    o->setProperty("mode", int(mode_ == Radio ? Tape : mode_));
+    o->setProperty("page", page_);
+    o->setProperty("octave", octave_);
+    o->setProperty("track", track_);
+    o->setProperty("tempo", proc_.tempoBpm.load());
+    o->setProperty("engine", proc_.synthEngine.load());
+    Array<var> mutes, vals;
+    for (bool m : mute_) mutes.add(m);
+    for (auto& m : val_) for (auto& p : m) for (auto& sd : p) for (float k : sd) vals.add(k);
+    o->setProperty("mutes", mutes);
+    o->setProperty("vals", vals);
+    return JSON::toString(var(o), true);
+}
+
+void MiniUi::fromJson(const String& text) {
+    const var v = JSON::parse(text);
+    if (!v.isObject()) return;
+    mode_ = Mode(jlimit(0, 3, int(v.getProperty("mode", 0))));
+    page_ = jlimit(0, kPageCount[mode_] - 1, int(v.getProperty("page", 0)));
+    octave_ = jlimit(-3, 3, int(v.getProperty("octave", 0)));
+    track_ = jlimit(0, 3, int(v.getProperty("track", 0)));
+    proc_.tempoBpm.store(jlimit(kTempoMin, kTempoMax, double(v.getProperty("tempo", 100.0))));
+    proc_.synthEngine.store(jlimit(0, int(lift::eng::kSynthEngines) - 1, int(v.getProperty("engine", 0))));
+    if (auto* a = v.getProperty("mutes", var()).getArray())
+        for (int t = 0; t < 4 && t < a->size(); ++t) mute_[t] = bool((*a)[t]);
+    if (auto* a = v.getProperty("vals", var()).getArray()) {
+        int i = 0;
+        for (auto& m : val_) for (auto& p : m) for (auto& sd : p) for (float& k : sd)
+            if (i < a->size()) k = jlimit(0.f, 1.f, float(double((*a)[i++])));
+    }
+}
+
+void MiniUi::flushState() { proc_.setMiniState(toJson()); }
+
+void MiniUi::stateLoaded(int) {
+    const String blob = proc_.uiState().mini;
+    if (blob.isEmpty()) { newProject(); return; }   // a full LIFT project: its tape, Mini defaults
+    fromJson(blob);
+    applyAll();
+    repaint();
+}
 
 
 MiniUi::View MiniUi::view() const {

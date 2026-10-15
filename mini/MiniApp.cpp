@@ -68,6 +68,7 @@ public:
         if (auto shot = arg(a, "--screenshot"); shot.isNotEmpty()) {
             // headless check: run the engine offline a moment, draw one frame, save it
             proc_->prepareToPlay(48000.0, 256);
+            ui_->newProject();
             ui_->setSize(w, h);
             if (arg(a, "--view") == "radio") {  // SHIFT + REC, pick RADIO, open it; let the stream start
                 ui_->handle({mini::Event::Button, int(mini::Btn::Shift), 1});
@@ -120,12 +121,13 @@ public:
         const auto gpioFile = arg(a, "--gpio", "/etc/lift-mini/controls.json");
         if (auto why = gpio_->start(File(gpioFile)); why.isNotEmpty()) DBG("GPIO off: " << why);
 
-        proc_->reopenLast();
+        ui_->boot();   // the last project where it was left, else a new one
         window_ = std::make_unique<Window>(ui_.get(), a.contains("--kiosk"), w, h);
         if (a.contains("--kiosk")) Desktop::getInstance().setScreenSaverEnabled(false);
     }
 
     void shutdown() override {
+        if (ui_ != nullptr && proc_ != nullptr) ui_->saveNow();
         gpio_.reset();
         devices_.removeAudioCallback(&player_);
         devices_.closeAudioDevice();
