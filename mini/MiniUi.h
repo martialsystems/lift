@@ -76,6 +76,8 @@ private:
     lift::LiftProcessor::ClipPtr clip_;
     juce::String status_, flash_;
     double flashUntil_ = 0;
+    int sounding_[24] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};  // note each held key started (-1 = none)
     juce::Array<int> heldKeys_;               // computer keys down (for key-up)
     float scope_[480] = {};
     std::vector<float> scopeBuf_ = std::vector<float>(4096);

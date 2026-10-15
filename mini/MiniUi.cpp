@@ -128,8 +128,16 @@ void MiniUi::key(int k, bool down) {
         }
         return;
     }
-    const int note = 48 + octave_ * 12 + k;
-    proc_.send(down ? lift::Cmd::NoteOn : lift::Cmd::NoteOff, note, 100);
+    // key-up releases the note this key started, whatever the octave is now
+    if (k < 0 || k >= 24) return;
+    if (!down) {
+        if (sounding_[k] >= 0) proc_.send(lift::Cmd::NoteOff, sounding_[k], 100);
+        sounding_[k] = -1;
+        return;
+    }
+    if (sounding_[k] >= 0) proc_.send(lift::Cmd::NoteOff, sounding_[k], 100);
+    sounding_[k] = 48 + octave_ * 12 + k;
+    proc_.send(lift::Cmd::NoteOn, sounding_[k], 100);
 }
 
 void MiniUi::turn(int e, int detents) {

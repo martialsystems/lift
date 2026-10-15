@@ -187,7 +187,6 @@ recipe: A chord holds one voice per key
   expect voices == 0
 
 recipe: Changing octave while a key is held leaves no stuck note
-  known: key-up sends NoteOff for the new octave, not the note that started
   button SYNTH tap
   key w1 down
   wait 100
