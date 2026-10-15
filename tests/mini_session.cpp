@@ -533,7 +533,7 @@ int main(int argc, char** argv) {
         for (auto& r : recipes) std::cout << r.name << (r.known.empty() ? "" : "  [known]") << "\n";
         return 0;
     }
-    const fs::path work = fs::temp_directory_path() / ("lift-mini-session-" + std::to_string(::getpid()));
+    const fs::path work = fs::temp_directory_path() / ("lift-mini-session-" + std::to_string(juce::Time::getHighResolutionTicks()));
     int passed = 0, failed = 0, known = 0, fixed = 0;
     for (const Recipe& r : recipes) {
         if (!only.empty() && r.name != only) continue;
