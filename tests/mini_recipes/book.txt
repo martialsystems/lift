@@ -422,7 +422,80 @@ recipe: REC prints what you play onto the picked track only
   expect track_rms 2 == 0
   expect track_rms 4 == 0
 
-recipe: REC again ends the pass and the tape keeps playing
+recipe: REC with a loop records exactly one loop, then plays on
+  button TAPE tap
+  button SHIFT down
+  turn red 1              # 1-bar loop = 2.4 s
+  button SHIFT up
+  wait 20
+  key w1 down
+  button REC tap
+  wait 20
+  expect recording == 1
+  expect passes == 1
+  run 2
+  expect recording == 1
+  run 0.6
+  expect recording == 0
+  expect playing == 1
+  key w1 up
+  expect track_rms 1 > 0.001
+
+recipe: Each REC press with a loop adds another pass
+  button TAPE tap
+  button SHIFT down
+  turn red 1
+  button SHIFT up
+  wait 20
+  button REC tap
+  run 1
+  button REC tap
+  wait 20
+  expect passes == 2
+  expect recording == 1
+  run 2.5
+  expect recording == 0
+  button REC tap
+  wait 20
+  expect passes == 3
+
+recipe: SHIFT + OCT- undoes the newest REC pass only
+  button TAPE tap
+  button SHIFT down
+  turn red 1
+  button SHIFT up
+  wait 20
+  key w1 down
+  button REC tap
+  run 3
+  key w1 up
+  expect recording == 0
+  snapshot first
+  key w8 down
+  button REC tap
+  run 3
+  key w8 up
+  expect changed first > 0.001
+  button SHIFT down
+  button OCT- tap
+  button SHIFT up
+  run 1
+  expect changed first < 0.000001
+
+recipe: PLAY/STOP stops a loop recording
+  button TAPE tap
+  button SHIFT down
+  turn red 1
+  button SHIFT up
+  wait 20
+  button REC tap
+  run 1
+  button PLAY tap
+  wait 500
+  expect recording == 0
+  expect playing == 0
+
+recipe: With no loop, REC again punches out and the tape keeps playing
   button TAPE tap
   button REC tap
   run 0.5

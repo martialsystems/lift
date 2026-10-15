@@ -348,6 +348,7 @@ private:
         else if (k == "tempo") have = proc_->tempoBpm.load();
         else if (k == "engine") have = proc_->synthEngine.load();
         else if (k == "pages") have = v.pages;
+        else if (k == "passes") have = proc_->uiPassCount.load();
         else if (k == "loop") have = (proc_->uiLoopEnd.load() - proc_->uiLoopStart.load()) / kRate;
         else if (k == "character") have = rt.character;
         else if (k == "fader" && m.size() > 1) have = rt.fader[std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3)];

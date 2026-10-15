@@ -602,6 +602,16 @@ void LiftProcessor::apply(const Command& c) noexcept {
     case Cmd::Cassette:
         rt.cassette = c.a != 0;
         break;
+    case Cmd::RecPass:
+        if (!rt.playing) {
+            transport_tape_start(rt, 0.f);
+        }
+        rt.playing = true;
+        rt.recording = true;
+        rt.recWas = false;  // the next block starts a new pass (its own id: undo per pass)
+        passLeft_ = c.b;
+        passPrevPos_ = rt.pos;
+        break;
     case Cmd::TrackMix:
         if (c.a >= 0 && c.a < kTrackCount) {
             const float v = juce::jlimit(0.f, 1.f, static_cast<float>(c.v));
@@ -953,6 +963,20 @@ void LiftProcessor::renderBlock32(float* outL, float* outR) noexcept {
         capture_.write(outL, outR, eng::kBlock);
     }
     uiLimiterGr.store(limiter_.gainReduction(), std::memory_order_relaxed);
+    if (passLeft_ > 0) {
+        // RecPass: count the tape under the head (wrapping in the loop);
+        // after one pass length recording stops and playback goes on
+        double d = std::abs(rt.pos - passPrevPos_);
+        const int span = rt.loopEnd - rt.loopStart;
+        if (span > 0 && d > 0.5 * span) d = span - d;
+        passPrevPos_ = rt.pos;
+        if (!rt.recording) {
+            passLeft_ = 0;
+        } else if ((passLeft_ -= static_cast<std::int64_t>(std::llround(d))) <= 0) {
+            passLeft_ = 0;
+            rt.recording = false;
+        }
+    }
     if (rt.passCount != lastPass_) {
         lastPass_ = rt.passCount;
         recCapStart.store(capture_.written() - eng::kBlock, std::memory_order_release);

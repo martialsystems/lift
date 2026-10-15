@@ -89,6 +89,9 @@ private:
     void apply(int mode, int page, int side, int k);
     juce::String valueText(int side, int k) const;
     void setLoopBars(int bars);
+    struct Undo { bool pass; int passNo, track; };   // SHIFT + OCT-: newest first
+    std::vector<Undo> undo_;
+    int expectedPass_ = 0;
     void applyAll();
     juce::String toJson() const;
     void fromJson(const juce::String&);

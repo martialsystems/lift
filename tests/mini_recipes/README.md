@@ -110,6 +110,7 @@ and slots save to a temporary folder.
 | `knob COLOUR`, `sknob COLOUR` | that knob's plain / SHIFT parameter on the page on show, 0–1 |
 | `tempo`, `engine` | BPM; synth engine (0 = LOOM) |
 | `loop` | loop length, seconds (0 = off) |
+| `passes` | REC passes started (the processor's pass count) |
 | `character` | tape character row (0 DECK … 3 CAP) |
 | `fader N`, `pan N` | track N's level (gain²) and pan (−1…1) |
 | `mute N` | 0 or 1 |

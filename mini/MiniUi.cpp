@@ -171,7 +171,14 @@ void MiniUi::button(Btn b, bool down) {
             sourcesOpen_ = false;
             break;
         }
-        case Btn::OctDown: if (s) proc_.send(lift::Cmd::UndoDrop); else octave_ = jmax(-3, octave_ - 1); break;
+        case Btn::OctDown:
+            if (!s) { octave_ = jmax(-3, octave_ - 1); break; }
+            if (!undo_.empty() && undo_.back().pass) {   // the newest REC pass
+                proc_.send(lift::Cmd::UndoPass, undo_.back().passNo, undo_.back().track);
+                say("UNDO PASS");
+            } else proc_.send(lift::Cmd::UndoDrop);
+            if (!undo_.empty()) undo_.pop_back();
+            break;
         case Btn::OctUp: if (s) say("REDO: NOT IN THIS BUILD"); else octave_ = jmin(3, octave_ + 1); break;
         case Btn::PlayStop:
             if (s) proc_.send(lift::Cmd::Jump, 0, 0, 0.0);
@@ -179,9 +186,24 @@ void MiniUi::button(Btn b, bool down) {
             break;
         case Btn::Rec:
             if (s) { sourcesOpen_ = !sourcesOpen_; sourceSel_ = source_; break; }   // SHIFT + REC: sources
-            proc_.send(lift::Cmd::Arm, track_);
-            proc_.send(lift::Cmd::Transport, 1, proc_.overdubbing() ? 0 : 1);
+        {
+            // A loop set: every REC press records one more pass of exactly one
+            // loop, then playback goes on. No loop: REC punches in, REC again out.
+            const int ls = proc_.uiLoopStart.load(), le = proc_.uiLoopEnd.load();
+            expectedPass_ = jmax(expectedPass_, proc_.uiPassCount.load());
+            if (le > ls) {
+                proc_.send(lift::Cmd::Arm, track_);
+                proc_.send(lift::Cmd::RecPass, track_, le - ls);
+                undo_.push_back({true, ++expectedPass_, track_});
+            } else if (proc_.overdubbing()) {
+                proc_.send(lift::Cmd::Transport, 1, 0);
+            } else {
+                proc_.send(lift::Cmd::Arm, track_);
+                proc_.send(lift::Cmd::Transport, 1, 1);
+                undo_.push_back({true, ++expectedPass_, track_});
+            }
             break;
+        }
         case Btn::Lift:
             if (s) clip_ = proc_.keepTracks();
             else if (mode_ == Tape) {
@@ -199,7 +221,7 @@ void MiniUi::button(Btn b, bool down) {
             break;
         case Btn::Drop:
             if (!clip_) { say("NOTHING TO DROP: LIFT FIRST"); break; }
-            if (mode_ == Tape || mode_ == Mix) { proc_.dropToLoop(clip_, track_, true); say("DROP  T" + String(track_ + 1)); }
+            if (mode_ == Tape || mode_ == Mix) { undo_.push_back({false, 0, track_}); proc_.dropToLoop(clip_, track_, true); say("DROP  T" + String(track_ + 1)); }
             else if (mode_ == Synth) { proc_.setKeysClip(clip_); say("DROP  KEYS"); }
             else if (mode_ == Drum) { proc_.setSliceKit(clip_, 24); say("DROP  24 SLICES"); }
             else say("DROP: PICK SYNTH, DRUM OR TAPE");
