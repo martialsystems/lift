@@ -572,7 +572,6 @@ recipe: Pico SHIFT works like the button
   expect sources_open == 1
 
 recipe: Pico keys follow the octave rocker
-  known: channel 1 notes skip MiniUi and go straight to the engine (MiniControls.h says ch 1 notes are the keys)
   button SYNTH tap
   button OCT+ tap
   midi 1 noteon 48
@@ -581,13 +580,21 @@ recipe: Pico keys follow the octave rocker
   midi 1 noteoff 48
 
 recipe: Pico keys hit drums on the DRUM screen
-  known: channel 1 notes skip MiniUi, so DRUM mode plays the synth from the Pico
   button DRUM tap
   midi 1 noteon 48
   wait 20
   expect drums >= 1
   expect voices == 0
   midi 1 noteoff 48
+
+recipe: Pico SHIFT + key picks a slot
+  button SYNTH tap
+  midi 16 noteon 10
+  midi 1 noteon 48
+  midi 1 noteoff 48
+  midi 16 noteoff 10
+  expect toast has SLOT 1
+  expect voices == 0
 
 # ================================================================ chaos
 

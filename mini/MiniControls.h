@@ -33,7 +33,8 @@ using Sink = std::function<void(const Event&)>;  // always called on the message
 bool keyboardEvent(const juce::KeyPress& k, bool down, const Sink& sink);
 
 // The panel Pico as a USB MIDI device (spreadsheet: "Raspberry Pi Pico 2 ...
-// sends to the Pi over USB"). Channel 1 notes 48..71 = keys, channel 16
+// sends to the Pi over USB"). Channel 1 notes 48..71 = keys (routed through
+// MiniUi as Key events 0..23; other MIDI goes to the engine), channel 16
 // notes 0..10 = buttons, channel 16 CC 20..23 = encoders (relative, 65 = +1,
 // 63 = -1), channel 16 CC 24..27 = encoder pushes (127 down, 0 up).
 // Returns true if the message was a panel message (then it is not passed on

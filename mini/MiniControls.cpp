@@ -51,6 +51,12 @@ bool keyboardEvent(const juce::KeyPress& k, bool down, const Sink& sink) {
 }
 
 bool midiPanelEvent(const juce::MidiMessage& m, const Sink& sink) {
+    // channel 1 notes 48..71 are the Pico's 24 keys: they go through MiniUi
+    // like any key, so octave, DRUM mode and SHIFT + key all apply
+    if (m.getChannel() == 1 && m.isNoteOnOrOff() && m.getNoteNumber() >= 48 && m.getNoteNumber() < 72) {
+        post(sink, {Event::Key, m.getNoteNumber() - 48, m.isNoteOn() ? 1 : 0});
+        return true;
+    }
     if (m.getChannel() == 16) {
         if (m.isNoteOnOrOff() && m.getNoteNumber() < int(Btn::Count)) {
             post(sink, {Event::Button, m.getNoteNumber(), m.isNoteOn() ? 1 : 0});
