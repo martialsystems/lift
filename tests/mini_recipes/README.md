@@ -145,3 +145,7 @@ Everything is in `tests/mini_session.cpp`:
 
 After any runner change, run the whole book and `--chaos-seeds 50` before
 committing.
+
+The `block_ms` check (the audio callback budget) only means something in a
+Release build. A Debug or sanitizer build is several times slower and fails it;
+use those builds to hunt memory errors, not to time things.
