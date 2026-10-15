@@ -133,13 +133,15 @@ public:
     ClipPtr keepLast(double seconds);                         // LIFT: the last N s heard
     ClipPtr keepRange(std::int64_t from, std::int64_t to);    // REC: one pass, capture frames
     ClipPtr keepTracks();                                     // SHIFT+LIFT: the four loops' sum
+    ClipPtr keepTrack(int track, int from, int to);           // Mini LIFT in TAPE: one track's frames [from, to)
     ClipPtr makeClip(std::vector<float> l, std::vector<float> r, bool loop);
     float preKeepLufs(double seconds) const noexcept { return capture_.loudness(seconds); }
     std::int64_t captureNow() const noexcept { return capture_.written(); }
     const eng::CaptureRing& capture() const noexcept { return capture_; }
     std::atomic<std::int64_t> recCapStart{-1};   // capture frame where the current REC pass began
     // places (the audio thread reads raw pointers; live_ keeps every placed clip alive)
-    void dropToLoop(const ClipPtr& c, int track);
+    // advance: the playhead moves to the end of the paste (Mini: DROPs tile)
+    void dropToLoop(const ClipPtr& c, int track, bool advance = false);
     void setKeysClip(const ClipPtr& c);          // null: the synth plays the keys again
     void setKeyClip(int note, const ClipPtr& c); // one key plays it as a one-shot (drum sound)
     void setSliceKit(const ClipPtr& c, int slices);  // DRUM keys play up to 24 slices

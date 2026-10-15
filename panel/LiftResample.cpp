@@ -100,6 +100,19 @@ LiftProcessor::ClipPtr LiftProcessor::keepTracks() {
     return makeClip(std::move(l), std::move(r), true);
 }
 
+LiftProcessor::ClipPtr LiftProcessor::keepTrack(int track, int from, int to) {
+    TapeRuntime& rt = *rt_;
+    track = juce::jlimit(0, kTrackCount - 1, track);
+    from = juce::jlimit(0, rt.frames, from);
+    to = juce::jlimit(from, rt.frames, to);
+    if (to - from < 64 || rt.ch[track][0] == nullptr) {
+        return nullptr;
+    }
+    std::vector<float> l(rt.ch[track][0] + from, rt.ch[track][0] + to);
+    std::vector<float> r(rt.ch[track][1] + from, rt.ch[track][1] + to);
+    return makeClip(std::move(l), std::move(r), true);
+}
+
 LiftProcessor::ClipPtr LiftProcessor::slotClip() const {
     const TapeRuntime& rt = *rt_;
     if (rt.clip[0] == nullptr || rt.clipFrames < 64) {
@@ -122,9 +135,10 @@ void LiftProcessor::keepAlive(const ClipPtr& c) {
     }
     // forget clips nobody can reach any more: not the panel (use_count 1),
     // not a key, the keys, a slice kit, an audition or a pending drop
-    if (live_.size() > 16 && pendingDrop_.load() == nullptr) {
+    // (never while a copy job runs: it may be reading a clip)
+    if (live_.size() > 16 && !jobBusy()) {
         auto referenced = [this](const eng::Clip* p) {
-            if (keysClip_.load() == p || audition_.load() == p) return true;
+            if (keysClip_.load() == p || audition_.load() == p || pendingDrop_.load() == p) return true;
             for (auto& k : keyClip_) if (k.load() == p) return true;
             for (auto& kit : liveKits_) if (kit->clip.get() == p) return true;
             return false;
@@ -135,13 +149,13 @@ void LiftProcessor::keepAlive(const ClipPtr& c) {
     }
 }
 
-void LiftProcessor::dropToLoop(const ClipPtr& c, int track) {
+void LiftProcessor::dropToLoop(const ClipPtr& c, int track, bool advance) {
     if (c == nullptr) {
         return;
     }
     keepAlive(c);
     pendingDrop_.store(c.get());
-    send(Cmd::DropClip, juce::jlimit(0, kTrackCount - 1, track));
+    send(Cmd::DropClip, juce::jlimit(0, kTrackCount - 1, track), advance ? 1 : 0);
 }
 
 void LiftProcessor::setKeysClip(const ClipPtr& c) {

@@ -291,7 +291,9 @@ void LiftProcessor::startJob(const Command& c) noexcept {
         j.track = rt.arm;
         undoStart_ = -1;  // the backup is being rewritten
     } else if (c.cmd == Cmd::DropClip) {
-        const eng::Clip* clip = pendingDrop_.exchange(nullptr);
+        // load, not take: DROPs pressed while a copy runs wait in deferred_
+        // and each one pastes the same clip (keepAlive holds it)
+        const eng::Clip* clip = pendingDrop_.load();
         if (clip == nullptr || rt.frames <= 0 || undo_[0] == nullptr) return;
         const bool loop = rt.loopEnd > rt.loopStart;
         j.kind = JobKind::DropClip;
@@ -302,6 +304,9 @@ void LiftProcessor::startJob(const Command& c) noexcept {
         j.start = juce::jlimit(j.lo, j.lo + j.span - 1, static_cast<int>(rt.pos));
         j.n = juce::jmin(clip->frames(), j.span);
         j.track = juce::jlimit(0, kTrackCount - 1, c.a);
+        if (c.b != 0) {  // the playhead goes to the end of the paste, so the next DROP tiles
+            rt.pos = static_cast<double>(j.lo + (j.start - j.lo + j.n) % j.span);
+        }
         undoStart_ = -1;
     } else {  // UndoDrop / UndoAudio
         if (undoStart_ < 0) return;

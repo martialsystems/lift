@@ -616,6 +616,99 @@ recipe: LIFT and DROP bursts keep the audio callback fast
   expect block_ms < 5.33
   expect overflows == 0
 
+recipe: LIFT in TAPE keeps the picked track's loop region
+  fill track 3 sine 330 0.3
+  button TAPE tap
+  push black
+  button SHIFT down
+  turn red 2              # 2-bar loop at 100 BPM = 4.8 s
+  button SHIFT up
+  wait 20
+  button LIFT tap
+  expect clip > 4.799
+  expect clip < 4.801
+  expect clip_peak > 0.01
+
+recipe: LIFT in TAPE with no loop keeps the bar under the playhead
+  fill track 1 sine 220 0.3
+  button TAPE tap
+  button PLAY tap
+  run 3.5                 # into bar 2 (2.4 .. 4.8 s)
+  button PLAY tap
+  wait 300
+  button LIFT tap
+  expect clip > 2.399     # one bar at 100 BPM
+  expect clip < 2.401
+
+recipe: LIFT in TAPE from an empty track keeps nothing
+  fill track 1 sine 220 0.3
+  button TAPE tap
+  push blue
+  button LIFT tap
+  expect clip == 0
+
+recipe: LIFT outside TAPE still keeps what you just heard
+  fill track 1 sine 220 0.3
+  button PLAY tap
+  run 5
+  button LIFT tap
+  expect clip > 3.9
+  expect clip < 4.1
+
+recipe: A 4-bar LIFT and 15 more DROPs tile 64 bars exactly
+  button MIX tap
+  button MIX tap
+  button MIX tap          # PROJECT
+  turn yellow 71 each 200
+  expect tempo == 256     # a bar = 0.9375 s: 64 bars = the whole 60 s tape
+  fill track 2 sine 220 0.3
+  button TAPE tap
+  push blue
+  button SHIFT down
+  turn red 3              # 4-bar loop at bar 1
+  button SHIFT up
+  wait 20
+  expect loop > 3.7499
+  expect loop < 3.7501
+  button LIFT tap
+  expect clip > 3.7499
+  expect clip < 3.7501
+  button SHIFT down
+  turn red -5             # loop off: DROPs run down the tape
+  button SHIFT up
+  push yellow             # onto empty track 1
+  button SHIFT down
+  button PLAY tap         # to the start
+  button SHIFT up
+  wait 20
+  button DROP tap         # bars 1-4
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  run 2
+  expect job_busy == 0
+  expect pos > 56.2499    # 15 tiles: bar 61 starts at 56.25 s
+  expect pos < 56.2501
+  button DROP tap         # the 15th DROP after the first
+  run 1
+  expect job_busy == 0
+  expect pos < 0.0001     # it ended exactly at the end of the tape
+  expect track_rms 1 0 0.1 > 0.01
+  expect track_rms 1 3.70 3.80 > 0.01      # no gap at the seams
+  expect track_rms 1 59.90 60 > 0.01       # the last bar is filled
+  expect track_rms 4 == 0
+
 # ================================================================ sources
 
 recipe: SHIFT + REC lists the sources; yellow picks, press opens

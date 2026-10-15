@@ -183,12 +183,23 @@ void MiniUi::button(Btn b, bool down) {
             proc_.send(lift::Cmd::Transport, 1, proc_.overdubbing() ? 0 : 1);
             break;
         case Btn::Lift:
-            clip_ = s ? proc_.keepTracks() : proc_.keepLast(proc_.liftBack.load());
+            if (s) clip_ = proc_.keepTracks();
+            else if (mode_ == Tape) {
+                // TAPE: the loop region of the picked track, else the bar under the playhead
+                int from = proc_.uiLoopStart.load(), to = proc_.uiLoopEnd.load();
+                if (to <= from) {
+                    const double bar = 4.0 * 60.0 / proc_.tempoBpm.load() * 48000.0;
+                    const double b = std::floor(proc_.uiPos.load() / bar);
+                    from = int(std::lround(b * bar));
+                    to = int(std::lround((b + 1.0) * bar));
+                }
+                clip_ = proc_.keepTrack(track_, from, to);
+            } else clip_ = proc_.keepLast(proc_.liftBack.load());
             if (clip_) { proc_.addToPool(clip_); say("LIFT  " + String(clip_->frames() / 48000.0, 1) + " S"); }
             break;
         case Btn::Drop:
             if (!clip_) { say("NOTHING TO DROP: LIFT FIRST"); break; }
-            if (mode_ == Tape || mode_ == Mix) { proc_.dropToLoop(clip_, track_); say("DROP  T" + String(track_ + 1)); }
+            if (mode_ == Tape || mode_ == Mix) { proc_.dropToLoop(clip_, track_, true); say("DROP  T" + String(track_ + 1)); }
             else if (mode_ == Synth) { proc_.setKeysClip(clip_); say("DROP  KEYS"); }
             else if (mode_ == Drum) { proc_.setSliceKit(clip_, 24); say("DROP  24 SLICES"); }
             else say("DROP: PICK SYNTH, DRUM OR TAPE");
