@@ -1,0 +1,21 @@
+# Copyright (c) 2026 Martial Systems LLC. All rights reserved.
+#
+# LIFT Mini: a separate standalone (plain JUCE GUI app, no plug-in wrapper)
+# with the Mini's 480 x 272 screen. Built for Raspberry Pi 4/5 (Linux
+# aarch64), also builds on Linux x86_64, macOS and Windows for desk work.
+# Uses LIFT_TAPE_SOURCES / LIFT_ENGINE_SOURCES / LIFT_PANEL_SOURCES from LiftApp.cmake.
+juce_add_gui_app(LIFT_Mini
+    VERSION 0.1.0
+    COMPANY_NAME "Martial Systems"
+    PRODUCT_NAME "lift-mini"
+    BUNDLE_ID com.martialsystems.liftmini)
+target_sources(LIFT_Mini PRIVATE
+    ${LIFT_ROOT}/mini/MiniApp.cpp ${LIFT_ROOT}/mini/MiniUi.cpp ${LIFT_ROOT}/mini/MiniControls.cpp
+    ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_include_directories(LIFT_Mini PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ROOT}/mini ${LIFT_ENGINE_INCLUDES})
+target_compile_definitions(LIFT_Mini PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_ALSA=1 JUCE_JACK=1 JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+target_link_libraries(LIFT_Mini PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags)

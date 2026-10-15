@@ -1,0 +1,13 @@
+{
+  "_note": "LIFT Mini GPIO map (BCM line offsets on /dev/gpiochip0; Pi 5 uses gpiochip4 on older kernels, gpiochip0 on current Pi OS). Only needed if switches are wired straight to the Pi. The spreadsheet's prototype uses a Pico 2 over USB MIDI instead; then leave this file out.",
+  "chip": "/dev/gpiochip0",
+  "active_low": true,
+  "buttons": { "SHIFT": 5, "PLAY": 6, "REC": 13, "LIFT": 19, "DROP": 26 },
+  "keys": [],
+  "encoders": [
+    { "a": 17, "b": 27, "push": 22 },
+    { "a": 23, "b": 24, "push": 25 },
+    { "a": 12, "b": 16, "push": 20 },
+    { "a": 21, "b": 4,  "push": -1 }
+  ]
+}

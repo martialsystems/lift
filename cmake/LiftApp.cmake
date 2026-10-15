@@ -100,3 +100,8 @@ target_compile_definitions(lift_panel_check PRIVATE
 target_link_libraries(lift_panel_check PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 add_test(NAME lift_panel_check COMMAND lift_panel_check)
+
+option(LIFT_BUILD_MINI "Build the LIFT Mini standalone (Raspberry Pi target)" ON)
+if(LIFT_BUILD_MINI)
+    include(${LIFT_ROOT}/cmake/LiftMini.cmake)
+endif()

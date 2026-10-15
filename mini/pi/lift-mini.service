@@ -1,0 +1,19 @@
+# Copyright (c) 2026 Martial Systems LLC. All rights reserved.
+# Installed by mini/pi/install.sh as a user service (runs in the desktop session).
+[Unit]
+Description=LIFT Mini
+After=sound.target
+
+[Service]
+# JUCE draws through X11 (XWayland on the default Pi OS desktop). Until the
+# desktop is up the start fails and systemd retries.
+Environment=DISPLAY=:0
+ExecStart=/usr/local/bin/lift-mini --kiosk --fps 30 --audio ALSA --buffer 256 --gpio /etc/lift-mini/controls.json
+Restart=always
+RestartSec=2
+Nice=-5
+LimitRTPRIO=70
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=default.target
