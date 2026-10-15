@@ -10,6 +10,8 @@
 #include "MiniLayout.h"
 #include "ShiftState.h"
 
+#include <functional>
+
 namespace mini {
 
 inline constexpr int kW = kScreenW, kH = kScreenH;
@@ -26,6 +28,20 @@ public:
 
     enum Mode { Synth, Drum, Tape, Mix, Radio };
 
+    // ---- test access (tests/mini_session.cpp) ----
+    // A test clock in ms; unset = the real clock. SHIFT timing and toasts use it.
+    void setClock(std::function<double()> c) { clock_ = std::move(c); }
+    struct View {
+        Mode mode;
+        int page, octave, track, source, sourceSel;
+        bool sourcesOpen, shift, shiftLatched;
+        bool mute[4];
+        float knob[4];            // the four knobs of the screen on show (0..1)
+        juce::String toast;       // the message strip text right now ("" = none)
+        lift::LiftProcessor::ClipPtr clip;
+    };
+    View view() const;
+
 private:
     void timerCallback() override;
     void button(Btn b, bool down);
@@ -41,7 +57,8 @@ private:
     void paintRadio(juce::Graphics&, juce::Rectangle<float>);
     void paintSources(juce::Graphics&, juce::Rectangle<float>);
     void say(juce::String s);
-    double now() const { return juce::Time::getMillisecondCounterHiRes(); }
+    double now() const { return clock_ ? clock_() : juce::Time::getMillisecondCounterHiRes(); }
+    std::function<double()> clock_;
 
     lift::LiftProcessor& proc_;
     Mode mode_ = Tape;
@@ -51,7 +68,7 @@ private:
     ShiftState shift_;
     bool sh() const { return shift_.active(); }
     bool sourcesOpen_ = false;   // SHIFT + REC: the source list
-    int sourceSel_ = 0;          // 0 INTERNAL, 1 RADIO, 2 MASTER
+    int sourceSel_ = 0;          // 0 INTERNAL, 1 RADIO, 2 COMPUTER, 3 MASTER
     int source_ = 0;
     float radioKnob_[4] = {0.f, 0.f, 0.5f, 0.f};  // TUNE, PRESET, LEVEL, MONO
     bool mute_[4] = {};

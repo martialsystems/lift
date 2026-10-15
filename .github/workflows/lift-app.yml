@@ -18,7 +18,7 @@ jobs:
           cmake -S . -B build -DLIFT_APP_ONLY=ON -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
-        run: cmake --build build --config Release -j 4 --target LiftApp_Standalone LiftApp_VST3 LiftApp_AU lift_panel_check lift_engine_check lift_resample_check lift_mini_check
+        run: cmake --build build --config Release -j 4 --target LiftApp_Standalone LiftApp_VST3 LiftApp_AU lift_panel_check lift_engine_check lift_resample_check lift_mini_check lift_mini_session
       - name: Test
         run: cd build && ctest --output-on-failure -C Release
       - name: Check architectures
@@ -72,9 +72,11 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -G Ninja -DLIFT_APP_ONLY=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build
-        run: cmake --build build --target LIFT_Mini lift_mini_check
+        run: cmake --build build --target LIFT_Mini lift_mini_check lift_mini_session
       - name: Mini checks
         run: xvfb-run -a build/lift_mini_check_artefacts/Release/lift_mini_check
+      - name: Mini scenario book
+        run: build/lift_mini_session_artefacts/Release/lift_mini_session tests/mini_recipes/book.txt --chaos-seeds 20
       - name: Headless frame
         run: xvfb-run -a build/LIFT_Mini_artefacts/Release/lift-mini --screenshot mini-pi-ui.png --size 800x480
       - name: Package

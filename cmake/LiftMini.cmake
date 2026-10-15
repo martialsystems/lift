@@ -37,3 +37,20 @@ add_test(NAME lift_mini_check COMMAND lift_mini_check)
 if(APPLE)
     target_link_libraries(lift_mini_check PRIVATE "-framework CoreAudio" "-framework Foundation")
 endif()
+
+# Mini scenario book: plays the Mini UI (SHIFT, buttons, keys, encoders, Pico
+# MIDI) against the real processor. tests/mini_recipes/README.md explains it.
+#   ctest -R lift_mini_session      or      lift_mini_session --only "NAME"
+juce_add_console_app(lift_mini_session VERSION 0.1.0 PRODUCT_NAME "lift_mini_session" NEEDS_CURL TRUE)
+target_sources(lift_mini_session PRIVATE ${LIFT_ROOT}/tests/mini_session.cpp
+    ${LIFT_ROOT}/mini/MiniUi.cpp ${LIFT_ROOT}/mini/MiniControls.cpp
+    ${LIFT_TAPE_SOURCES} ${LIFT_ENGINE_SOURCES} ${LIFT_PANEL_SOURCES})
+target_include_directories(lift_mini_session PRIVATE ${LIFT_ROOT}/src ${LIFT_ROOT}/panel ${LIFT_ROOT}/mini ${LIFT_ROOT}/tests ${LIFT_ENGINE_INCLUDES})
+target_compile_definitions(lift_mini_session PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_STANDALONE_APPLICATION=1 LIFT_SOURCE_DIR="${LIFT_ROOT}")
+target_link_libraries(lift_mini_session PRIVATE lift_fonts lift_art juce::juce_audio_utils juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags)
+add_test(NAME lift_mini_session COMMAND lift_mini_session ${LIFT_ROOT}/tests/mini_recipes/book.txt)
+if(APPLE)
+    target_link_libraries(lift_mini_session PRIVATE "-framework CoreAudio" "-framework Foundation")
+endif()

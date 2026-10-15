@@ -1,0 +1,603 @@
+# Copyright (c) 2026 Martial Systems LLC. All rights reserved.
+#
+# LIFT Mini scenario book. lift_mini_session plays each recipe from a fresh
+# Mini (TAPE screen, track 1, octave 0, 1x speed, empty tape, no clip) and
+# checks it. How to read and extend this file: tests/mini_recipes/README.md.
+#
+# Quick reference
+#   button NAME [down|up|tap]      SYNTH DRUM TAPE MIX OCT- OCT+ LIFT DROP REC PLAY SHIFT
+#   key SPEC [down|up|tap]         SPEC: 1-24 chromatic from C3, w1-w14 white, b1-b10 black
+#   turn COLOUR DETENTS [each]     yellow blue black red; "each" = one detent at a time
+#   push COLOUR [down|up|tap]      encoder press
+#   midi CH noteon N [VEL] | noteoff N | cc N V     (as the Pico sends it)
+#   wait MS | run SECONDS | mark
+#   input silence | sine HZ AMP | noise AMP
+#   fill track N sine HZ AMP | snapshot NAME | shot NAME | paint | chaos SEED MOVES
+#   expect METRIC OP VALUE | expect toast has|lacks TEXT
+# A "tap" holds 40 ms (keys: 150 ms). Time only moves with wait, run and taps.
+
+# ================================================================ start
+
+recipe: Starts on TAPE, track 1, octave 0, 1x
+  expect mode == TAPE
+  expect page == 1
+  expect track == 1
+  expect octave == 0
+  expect speed == 1
+  expect playing == 0
+  expect recording == 0
+  expect shift == 0
+  expect clip == 0
+  expect source == INTERNAL
+
+# ================================================================ SHIFT
+
+recipe: SHIFT is on only while held
+  button SHIFT down
+  expect shift == 1
+  expect shift_latched == 0
+  button SHIFT up
+  expect shift == 0
+
+recipe: SHIFT tap goes back (closes the source list)
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  expect sources_open == 1
+  wait 400
+  button SHIFT tap
+  expect sources_open == 0
+
+recipe: SHIFT double tap latches; a mode key opens unshifted
+  button SHIFT tap
+  wait 100
+  button SHIFT tap
+  expect shift_latched == 1
+  expect shift == 1
+  button SYNTH tap
+  expect mode == SYNTH
+  expect shift_latched == 0
+  expect shift == 0
+
+recipe: SHIFT tap while latched unlatches without going back
+  button SHIFT tap
+  wait 100
+  button SHIFT tap
+  expect shift_latched == 1
+  button REC tap
+  expect sources_open == 1
+  wait 400
+  button SHIFT tap
+  expect shift_latched == 0
+  expect sources_open == 1
+
+recipe: SHIFT held long with nothing else does nothing
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  wait 400
+  button SHIFT down
+  wait 600
+  button SHIFT up
+  expect sources_open == 1
+  expect shift_latched == 0
+
+recipe: SHIFT + turn is the fine step, and its release is not a tap
+  button SYNTH tap
+  turn yellow 5
+  expect knob yellow > 0.599
+  expect knob yellow < 0.601
+  button SHIFT down
+  turn yellow 5
+  button SHIFT up
+  expect knob yellow > 0.624
+  expect knob yellow < 0.626
+  expect shift == 0
+
+# ================================================================ modes and pages
+
+recipe: Each mode key opens its screen
+  button SYNTH tap
+  expect mode == SYNTH
+  button DRUM tap
+  expect mode == DRUM
+  button MIX tap
+  expect mode == MIX
+  button TAPE tap
+  expect mode == TAPE
+
+recipe: Tapping a mode key again moves through four pages and wraps
+  button SYNTH tap
+  expect page == 1
+  button SYNTH tap
+  expect page == 2
+  button SYNTH tap
+  button SYNTH tap
+  expect page == 4
+  button SYNTH tap
+  expect page == 1
+  button DRUM tap
+  expect page == 1
+
+recipe: A mode key closes the source list
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  expect sources_open == 1
+  button DRUM tap
+  expect sources_open == 0
+  expect mode == DRUM
+
+recipe: Every screen paints, and screenshots are written
+  shot tape
+  button SYNTH tap
+  shot synth
+  button DRUM tap
+  shot drum
+  button MIX tap
+  shot mix
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  shot sources
+
+# ================================================================ keys and octave
+
+recipe: OCT rocker moves three octaves each way and stops there
+  button OCT+ tap
+  button OCT+ tap
+  button OCT+ tap
+  button OCT+ tap
+  expect octave == 3
+  button OCT- tap
+  button OCT- tap
+  button OCT- tap
+  button OCT- tap
+  button OCT- tap
+  button OCT- tap
+  button OCT- tap
+  expect octave == -3
+
+recipe: Keys play the synth, on the octave shown
+  button SYNTH tap
+  key w1 down
+  wait 50
+  expect voices >= 1
+  expect note == 48
+  key w1 up
+  button OCT+ tap
+  key w1 down
+  wait 50
+  expect note == 60
+  key w1 up
+  wait 3000
+  expect voices == 0
+
+recipe: A chord holds one voice per key
+  button SYNTH tap
+  key w1 down
+  key w3 down
+  key w5 down
+  wait 50
+  expect voices >= 3
+  key w1 up
+  key w3 up
+  key w5 up
+  wait 3000
+  expect voices == 0
+
+recipe: Changing octave while a key is held leaves no stuck note
+  known: key-up sends NoteOff for the new octave, not the note that started
+  button SYNTH tap
+  key w1 down
+  wait 100
+  button OCT+ tap
+  key w1 up
+  wait 3000
+  expect voices == 0
+
+recipe: Changing mode while a key is held leaves no stuck note
+  known: key-up in DRUM sends nothing, so a SYNTH note started before the switch keeps ringing
+  button SYNTH tap
+  key w1 down
+  wait 100
+  button DRUM tap
+  key w1 up
+  wait 3000
+  expect voices == 0
+
+recipe: DRUM keys hit drums, not the synth
+  button DRUM tap
+  key 1 down
+  wait 20
+  expect drums >= 1
+  expect voices == 0
+  key 1 up
+
+# ================================================================ SHIFT + keys
+
+recipe: SHIFT + white key 1 acts on slot 1
+  button SYNTH tap
+  button SHIFT down
+  key w1 tap
+  button SHIFT up
+  expect toast has SLOT 1
+
+recipe: SHIFT + black keys are tools, not slots
+  known: SHIFT uses chromatic keys 1-8 as slots, so black keys save slots (sheet section 6: black keys are tools)
+  button SYNTH tap
+  button SHIFT down
+  key b1 tap
+  button SHIFT up
+  expect toast lacks SAVED
+
+# ================================================================ TAPE
+
+recipe: PLAY starts and stops the tape at 1x
+  button PLAY tap
+  expect playing == 1
+  mark
+  run 1
+  expect moved > 0.95
+  expect moved < 1.05
+  button PLAY tap
+  wait 500
+  expect playing == 0
+
+recipe: SHIFT + PLAY goes to the start while stopped
+  button PLAY tap
+  run 2
+  button PLAY tap
+  wait 500
+  expect pos > 1.5
+  button SHIFT down
+  button PLAY tap
+  button SHIFT up
+  wait 20
+  expect pos < 0.01
+
+recipe: SHIFT + PLAY goes to the start while playing
+  known: SHIFT+PLAY sends Seek, which the processor ignores while the tape moves (Jump would work)
+  button PLAY tap
+  run 2
+  button SHIFT down
+  button PLAY tap
+  button SHIFT up
+  wait 20
+  expect pos < 0.1
+
+recipe: Knob presses pick the track in TAPE
+  push red
+  expect track == 4
+  wait 20
+  expect arm == 4
+  push blue
+  expect track == 2
+  wait 20
+  expect arm == 2
+
+recipe: REC prints what you play onto the picked track only
+  push black
+  button REC tap
+  expect recording == 1
+  expect arm == 3
+  key w1 down
+  run 1
+  key w1 up
+  button PLAY tap
+  wait 500
+  expect recording == 0
+  expect track_rms 3 0 1 > 0.001
+  expect track_rms 1 == 0
+  expect track_rms 2 == 0
+  expect track_rms 4 == 0
+
+recipe: REC again ends the pass and the tape keeps playing
+  button REC tap
+  run 0.5
+  button REC tap
+  wait 20
+  expect recording == 0
+  expect playing == 1
+
+recipe: Speed knob turns down through stop into reverse
+  button PLAY tap
+  run 0.2
+  turn yellow -15 each
+  expect speed == 0
+  run 1
+  mark
+  run 1
+  expect moved > -0.001
+  expect moved < 0.001
+  turn yellow -20 each
+  expect speed < 0
+  run 1
+  mark
+  run 1
+  expect moved < -0.05
+
+recipe: Speed knob comes back up through stop into forward
+  button PLAY tap
+  turn yellow -40 each
+  expect speed < 0
+  run 1
+  turn yellow 40 each
+  expect speed > 0
+  run 1
+  mark
+  run 1
+  expect moved > 0.05
+  expect out peak < 2
+
+recipe: Speed knob ends are 4x each way
+  turn yellow 60 each
+  expect speed == 4
+  turn yellow -120 each
+  expect speed == -4
+
+# ================================================================ MIX
+
+recipe: Knob presses mute tracks in MIX
+  button MIX tap
+  push blue
+  expect mute 2 == 1
+  push blue
+  expect mute 2 == 0
+  push red
+  expect mute 4 == 1
+
+recipe: A muted track is silent
+  fill track 1 sine 220 0.3
+  button MIX tap
+  push yellow
+  button PLAY tap
+  run 0.5
+  mark
+  run 1
+  expect out peak < 0.01
+  push yellow
+  run 0.5
+  mark
+  run 1
+  expect out rms > 0.02
+
+# ================================================================ LIFT and DROP
+
+recipe: DROP before any LIFT says so
+  button DROP tap
+  expect toast has NOTHING TO DROP
+  expect clip == 0
+
+recipe: LIFT keeps the last four seconds you heard
+  run 3
+  button SYNTH tap
+  key w1 down
+  run 2
+  key w1 up
+  run 1
+  button LIFT tap
+  expect clip > 3.9
+  expect clip < 4.1
+  expect toast has LIFT
+  expect pool == 1
+  expect clip_peak > 0.01
+  expect clip_peak <= 1
+
+recipe: LIFT on silence stays clean
+  run 5
+  button LIFT tap
+  expect clip_peak <= 1
+  expect clip_rms < 0.01
+
+recipe: DROP in SYNTH puts the clip on the keys
+  button SYNTH tap
+  key w1 down
+  run 2
+  key w1 up
+  run 1
+  button LIFT tap
+  button DROP tap
+  expect toast has DROP KEYS
+  wait 100
+  mark
+  key w5 down
+  run 0.5
+  key w5 up
+  expect out rms > 0.001
+
+recipe: DROP in DRUM slices the clip across the keys
+  button SYNTH tap
+  key w1 down
+  run 2
+  key w1 up
+  run 1
+  button LIFT tap
+  button DRUM tap
+  button DROP tap
+  expect slice_kit == 1
+  expect toast has 24 SLICES
+  mark
+  key 3 tap
+  run 0.3
+  expect out rms > 0.0005
+
+recipe: DROP in TAPE writes the clip onto the picked track
+  button SYNTH tap
+  key w1 down
+  run 2
+  key w1 up
+  run 1
+  button LIFT tap
+  button TAPE tap
+  push blue
+  button DROP tap
+  expect toast has DROP
+  run 3
+  expect job_busy == 0
+  expect track_rms 2 > 0.001
+  expect track_rms 1 == 0
+
+recipe: SHIFT + OCT- undoes the DROP
+  button SYNTH tap
+  key w1 down
+  run 2
+  key w1 up
+  run 1
+  button LIFT tap
+  button TAPE tap
+  snapshot before
+  button DROP tap
+  run 3
+  expect changed before > 0.001
+  button SHIFT down
+  button OCT- tap
+  button SHIFT up
+  run 3
+  expect job_busy == 0
+  expect changed before < 0.000001
+
+recipe: SHIFT + LIFT keeps the four tracks' loop
+  fill track 1 sine 220 0.2
+  fill track 3 sine 330 0.2
+  button SHIFT down
+  button LIFT tap
+  button SHIFT up
+  expect clip > 1
+  expect clip_peak > 0.01
+  expect clip_peak <= 1
+
+recipe: LIFT and DROP bursts keep the audio callback fast
+  fill track 1 sine 220 0.2
+  button PLAY tap
+  run 0.5
+  button LIFT tap
+  mark
+  button DROP tap
+  button DROP tap
+  button DROP tap
+  button SHIFT down
+  button OCT- tap
+  button SHIFT up
+  button DROP tap
+  run 4
+  expect block_ms < 5.33
+  expect overflows == 0
+
+# ================================================================ sources
+
+recipe: SHIFT + REC lists the sources; yellow picks, press opens
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  expect sources_open == 1
+  expect source_sel == INTERNAL
+  turn yellow 1
+  expect source_sel == RADIO
+  turn yellow 1
+  turn yellow 1
+  expect source_sel == MASTER
+  turn yellow 1
+  expect source_sel == MASTER
+  push yellow
+  expect sources_open == 0
+  expect source == MASTER
+
+recipe: A fast turn moves the source list by every detent
+  known: lists (sources, radio TUNE and PRESET) only use the turn's direction; a fast Pico turn sends several detents at once
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  turn yellow 3
+  expect source_sel == MASTER
+
+recipe: RADIO source opens the radio screen (no network in tests)
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  turn yellow 1
+  push yellow
+  expect source == RADIO
+  expect mode == RADIO
+  turn yellow 1
+  turn blue 3
+  turn black 5
+  turn red -2
+  shot radio
+  button TAPE tap
+  expect mode == TAPE
+
+recipe: COMPUTER source says what it is doing
+  button SHIFT down
+  button REC tap
+  button SHIFT up
+  turn yellow 2 each
+  push yellow
+  expect source == COMPUTER
+  expect toast has COMPUTER AUDIO
+
+# ================================================================ the Pico panel (USB MIDI)
+
+recipe: Pico buttons on channel 16 press the same buttons
+  midi 16 noteon 9
+  midi 16 noteoff 9
+  wait 20
+  expect playing == 1
+  midi 16 noteon 0
+  midi 16 noteoff 0
+  expect mode == SYNTH
+
+recipe: Pico encoders on channel 16 turn and press
+  button SYNTH tap
+  midi 16 cc 20 66
+  expect knob yellow > 0.539
+  expect knob yellow < 0.541
+  midi 16 cc 21 62
+  expect knob blue > 0.459
+  expect knob blue < 0.461
+  button TAPE tap
+  midi 16 cc 26 127
+  midi 16 cc 26 0
+  expect track == 3
+
+recipe: Pico SHIFT works like the button
+  midi 16 noteon 10
+  midi 16 noteon 8
+  midi 16 noteoff 8
+  midi 16 noteoff 10
+  expect sources_open == 1
+
+recipe: Pico keys follow the octave rocker
+  known: channel 1 notes skip MiniUi and go straight to the engine (MiniControls.h says ch 1 notes are the keys)
+  button SYNTH tap
+  button OCT+ tap
+  midi 1 noteon 48
+  wait 50
+  expect note == 60
+  midi 1 noteoff 48
+
+recipe: Pico keys hit drums on the DRUM screen
+  known: channel 1 notes skip MiniUi, so DRUM mode plays the synth from the Pico
+  button DRUM tap
+  midi 1 noteon 48
+  wait 20
+  expect drums >= 1
+  expect voices == 0
+  midi 1 noteoff 48
+
+# ================================================================ chaos
+
+recipe: Chaos 1
+  chaos 1 400
+
+recipe: Chaos 2
+  chaos 2 400
+
+recipe: Chaos 3
+  chaos 3 400
+
+recipe: Chaos 4
+  chaos 4 400
+
+recipe: Chaos 5
+  chaos 5 400

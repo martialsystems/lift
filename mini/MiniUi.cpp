@@ -40,6 +40,26 @@ int MiniUi::screenIndex() const {
     switch (mode_) { case Tape: return 0; case Synth: return 1; case Drum: return 2; case Mix: return 3; default: return 4; }
 }
 
+MiniUi::View MiniUi::view() const {
+    View v{};
+    v.mode = mode_;
+    v.page = page_;
+    v.octave = octave_;
+    v.track = track_;
+    v.source = source_;
+    v.sourceSel = sourceSel_;
+    v.sourcesOpen = sourcesOpen_;
+    v.shift = shift_.active();
+    v.shiftLatched = shift_.latched();
+    for (int i = 0; i < 4; ++i) {
+        v.mute[i] = mute_[i];
+        v.knob[i] = mode_ == Radio ? radioKnob_[i] : knob_[screenIndex()][i];
+    }
+    v.toast = now() < flashUntil_ ? flash_ : status_;
+    v.clip = clip_;
+    return v;
+}
+
 void MiniUi::say(String s) { flash_ = std::move(s); flashUntil_ = now() + 1500; }
 
 void MiniUi::handle(const Event& e) {
