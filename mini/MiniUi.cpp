@@ -13,12 +13,7 @@ const Colour rec(0xffd6402b);
 
 static const ScreenLayout& L = kScreen;
 static const char* kModeName[] = {"SYNTH", "DRUM", "TAPE", "MIX", "RADIO"};
-static const char* kKnobNames[5][4] = {
-    {"PITCH", "TONE", "AMOUNT", "TIME"},      // SYNTH macros
-    {"PITCH", "CHOKE", "DECAY", "SLICE"},     // DRUM
-    {"SPEED", "BIAS", "REC LVL", "POSITION"}, // TAPE
-    {"LEVEL", "PAN", "LOW", "HIGH"},          // MIX
-    {"TUNE", "PRESET", "LEVEL", "MONO"}};     // RADIO (sheet 4.5)
+static const char* kRadioNames[4] = {"TUNE", "PRESET", "LEVEL", "MONO"};  // RADIO (sheet 4.5)
 static const char* kSources[] = {"INTERNAL", "RADIO", "COMPUTER", "MASTER"};
 static constexpr int kNumSources = 4;
 
@@ -27,18 +22,19 @@ static Font label(float scale = 1.f) { return lift::ui::jost(600, L.font * scale
 MiniUi::MiniUi(lift::LiftProcessor& p, int fps) : proc_(p) {
     setOpaque(true);
     setWantsKeyboardFocus(true);
-    for (auto& s : knob_) for (auto& k : s) k = 0.5f;
+    for (auto& m : val_) for (auto& pg : m) for (auto& sd : pg) for (auto& k : sd) k = 0.5f;
     proc_.bipolarSpeed.store(true);           // the yellow knob runs reverse <-> stop <-> forward
-    knob_[0][0] = 0.5f + 0.5f * (0.04f + 0.96f * 0.6f);  // 1x forward on the knob's curve
-    proc_.signedSpeed.store(bipolarKnobToSpeed(knob_[0][0]));
+    proc_.perTrackMix.store(true);            // MIX: one level and pan per track (sheet 4.4)
+    val_[Tape][0][0][0] = 0.5f + 0.5f * (0.04f + 0.96f * 0.6f);  // 1x forward on the knob's curve
+    val_[Tape][0][1][1] = 0.f;                // CHARACTER: DECK
+    val_[Tape][0][1][3] = 0.f;                // LOOP: off
+    for (int t = 0; t < 4; ++t) val_[Mix][0][0][t] = 0.72f;   // unity
+    val_[Mix][2][0][0] = tempoToKnob(proc_.tempoBpm.load());
+    proc_.signedSpeed.store(bipolarKnobToSpeed(val_[Tape][0][0][0]));
     startTimerHz(jlimit(5, 60, fps));
 }
 MiniUi::~MiniUi() { proc_.send(lift::Cmd::NoteOff, -1); }
 
-int MiniUi::screenIndex() const {
-    // LiftProcessor knob screens: 0 TAPE, 1 SYNTH, 2 DRUM, 3 MIX, 4 IN (panel/MIDI.md)
-    switch (mode_) { case Tape: return 0; case Synth: return 1; case Drum: return 2; case Mix: return 3; default: return 4; }
-}
 
 MiniUi::View MiniUi::view() const {
     View v{};
@@ -53,7 +49,8 @@ MiniUi::View MiniUi::view() const {
     v.shiftLatched = shift_.latched();
     for (int i = 0; i < 4; ++i) {
         v.mute[i] = mute_[i];
-        v.knob[i] = mode_ == Radio ? radioKnob_[i] : knob_[screenIndex()][i];
+        v.knob[i] = mode_ == Radio ? radioKnob_[i] : val_[mode_][pg()][0][i];
+        v.knobS[i] = mode_ == Radio ? 0.f : val_[mode_][pg()][1][i];
     }
     v.toast = now() < flashUntil_ ? flash_ : status_;
     v.clip = clip_;
@@ -188,12 +185,69 @@ void MiniUi::turn(int e, int detents) {
         }
         return;
     }
-    const int sc = screenIndex();
-    const float step = s ? 0.005f : 0.02f;  // SHIFT: fine
-    float& v = knob_[sc][e];
-    v = jlimit(0.f, 1.f, v + step * float(detents));
-    if (mode_ == Tape && e == 0) proc_.signedSpeed.store(bipolarKnobToSpeed(v));
-    else proc_.setKnobValue(sc, e, v);
+    // SHIFT + turn = the knob's second parameter (sheet 4); SHIFT released
+    // mid-turn keeps that encoder shifted briefly (ShiftState grace)
+    const int side = s ? 1 : 0;
+    if (pageDef(mode_, pg()).s[e][0] == 0 && side == 1) return;   // no SHIFT parameter here
+    const double t = now();
+    const double dt = t - lastTurn_[e];
+    lastTurn_[e] = t;
+    float& v = val(side, e);
+    if (mode_ == Tape && side == 1 && (e == 1 || e == 3)) {   // CHARACTER, LOOP: one item per detent
+        const int n = e == 1 ? 4 : 6;
+        const int idx = jlimit(0, n - 1, roundToInt(v * float(n - 1)) + detents);
+        v = float(idx) / float(n - 1);
+    } else {
+        v = jlimit(0.f, 1.f, v + kSlowStep * encoderAccel(dt, detents) * float(detents));
+    }
+    apply(mode_, pg(), side, e);
+}
+
+// One knob value to wherever it lives. Parameters the engine has no hook for
+// yet are kept with the project (and the sound) and shown on screen.
+void MiniUi::apply(int mode, int page, int side, int k) {
+    const float v = val_[mode][page][side][k];
+    switch (mode) {
+        case Synth:
+        case Drum:
+            if (page == 0 && side == 0) proc_.setKnobValue(mode == Synth ? 1 : 2, k, v);
+            else if (page == 1 && side == 0) proc_.fxKnobs[k].store(v);
+            break;
+        case Tape:
+            if (side == 0) {
+                if (k == 0) proc_.signedSpeed.store(bipolarKnobToSpeed(v));
+                else proc_.setKnobValue(0, k, v);
+            } else if (k == 1) {
+                proc_.send(lift::Cmd::Character, roundToInt(v * 3.f));
+            } else if (k == 3) {
+                setLoopBars(kLoopBars[roundToInt(v * 5.f)]);
+            }
+            break;
+        case Mix:
+            if (page == 0) proc_.send(lift::Cmd::TrackMix, k, side, double(v));
+            else if (page == 2 && side == 0 && k == 0) proc_.tempoBpm.store(std::round(knobToTempo(v)));
+            break;
+        default: break;
+    }
+}
+
+// LOOP LENGTH: off, or N bars starting at the bar under the playhead
+void MiniUi::setLoopBars(int bars) {
+    if (bars <= 0) { proc_.send(lift::Cmd::LoopSet, 0, 0); return; }
+    const double bar = 4.0 * 60.0 / proc_.tempoBpm.load() * 48000.0;
+    const int start = int(std::floor(proc_.uiPos.load() / bar) * bar);
+    proc_.send(lift::Cmd::LoopSet, start, start + int(std::lround(bar * bars)));
+}
+
+String MiniUi::valueText(int side, int k) const {
+    const float v = val_[mode_][pg()][side][k];
+    if (mode_ == Tape && side == 1 && k == 1) return kCharacterNames[roundToInt(v * 3.f)];
+    if (mode_ == Tape && side == 1 && k == 3) {
+        const int b = kLoopBars[roundToInt(v * 5.f)];
+        return b == 0 ? String("OFF") : String(b) + (b == 1 ? " BAR" : " BARS");
+    }
+    if (mode_ == Mix && pg() == 2 && side == 0 && k == 0) return String(roundToInt(knobToTempo(v)));
+    return String(roundToInt(v * 100.f));
 }
 
 void MiniUi::push(int e, bool down) {
@@ -224,9 +278,8 @@ void MiniUi::push(int e, bool down) {
     if (mode_ == Tape) { track_ = e; proc_.send(lift::Cmd::Arm, e); }
     else if (mode_ == Mix) { mute_[e] = !mute_[e]; proc_.send(lift::Cmd::Mute, e, mute_[e] ? 1 : 0); }
     else if (sh()) {
-        const int sc = screenIndex();
-        knob_[sc][e] = 0.5f;
-        if (mode_ == Tape && e == 0) proc_.signedSpeed.store(0.f); else proc_.setKnobValue(sc, e, 0.5f);
+        val(0, e) = 0.5f;
+        apply(mode_, pg(), 0, e);
     }
 }
 
@@ -428,13 +481,14 @@ void MiniUi::paintSources(Graphics& g, Rectangle<float> r) {
 }
 
 void MiniUi::paintFoot(Graphics& g, Rectangle<float> r) {
-    const int sc = screenIndex();
     const float w = r.getWidth() / 4.f;
+    const int side = mode_ != Radio && sh() ? 1 : 0;   // SHIFT shows the second parameters
+    const auto& pd = pageDef(mode_ == Radio ? 0 : mode_, pg());
     for (int k = 0; k < 4; ++k) {
         auto cell = Rectangle<float>(r.getX() + k * w, r.getY(), w, r.getHeight()).reduced(L.pad, L.pad);
-        float v = mode_ == Radio ? (k == 1 ? radioKnob_[1] / 7.f : k == 0 ? 0.f : radioKnob_[k]) : knob_[sc][k];
-        String txt = String(roundToInt(v * 100.f));
-        if (mode_ == Tape && k == 0) {
+        float v = mode_ == Radio ? (k == 1 ? radioKnob_[1] / 7.f : k == 0 ? 0.f : radioKnob_[k]) : val_[mode_][pg()][side][k];
+        String txt = mode_ == Radio ? String(roundToInt(v * 100.f)) : valueText(side, k);
+        if (mode_ == Tape && k == 0 && side == 0) {
             const float sp = proc_.signedSpeed.load();
             txt = sp == 0.f ? String("STOP") : String(sp, 2) + "x";
         } else if (mode_ == Radio && k == 1) {
@@ -446,7 +500,7 @@ void MiniUi::paintFoot(Graphics& g, Rectangle<float> r) {
         g.setColour(col::knob[k]);
         g.fillRect(cell.removeFromBottom(L.pad).withWidth(cell.getWidth() * v));
         g.setFont(label());
-        g.drawText(kKnobNames[mode_][k], cell.removeFromTop(L.font * 1.5f), Justification::centredLeft);
+        g.drawText(mode_ == Radio ? kRadioNames[k] : side ? pd.s[k] : pd.a[k], cell.removeFromTop(L.font * 1.5f), Justification::centredLeft);
         g.setColour(col::ink);
         g.setFont(lift::ui::mono(true, L.big));
         g.drawText(txt, cell, Justification::centredLeft);

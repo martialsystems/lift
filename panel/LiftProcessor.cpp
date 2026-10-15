@@ -503,8 +503,8 @@ void LiftProcessor::stepKnobs(int n) noexcept {
     // MIX: level / pan / low / high of the armed track
     const int arm = juce::jlimit(0, kTrackCount - 1, rt.arm);
     const float* mx = v + 3 * 4;
-    if (arm != appliedArm_ || mx[0] != appliedMix_[0] || mx[1] != appliedMix_[1] || mx[2] != appliedMix_[2] ||
-        mx[3] != appliedMix_[3]) {
+    if (!perTrackMix.load(std::memory_order_relaxed) && (arm != appliedArm_ || mx[0] != appliedMix_[0] || mx[1] != appliedMix_[1] || mx[2] != appliedMix_[2] ||
+        mx[3] != appliedMix_[3])) {
         const float lv = mx[0] / 0.72f;  // unity at the default
         rt.fader[arm] = lv * lv;
         rt.panL[arm] = juce::jmin(1.f, 2.f * (1.f - mx[1]));
@@ -596,6 +596,18 @@ void LiftProcessor::apply(const Command& c) noexcept {
         break;
     case Cmd::Cassette:
         rt.cassette = c.a != 0;
+        break;
+    case Cmd::TrackMix:
+        if (c.a >= 0 && c.a < kTrackCount) {
+            const float v = juce::jlimit(0.f, 1.f, static_cast<float>(c.v));
+            if (c.b == 0) {
+                const float lv = v / 0.72f;  // unity at the default
+                rt.fader[c.a] = lv * lv;
+            } else {
+                rt.panL[c.a] = juce::jmin(1.f, 2.f * (1.f - v));
+                rt.panR[c.a] = juce::jmin(1.f, 2.f * v);
+            }
+        }
         break;
     case Cmd::LoopSet:
         rt.loopStart = juce::jlimit(0, juce::jmax(0, rt.frames - 1), c.a);

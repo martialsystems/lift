@@ -333,6 +333,12 @@ private:
         }
         else if (k == "mute" && m.size() > 1) { const int t = int(num(m, 1)) - 1; have = t >= 0 && t < 4 ? v.mute[t] : -1; }
         else if (k == "knob" && m.size() > 1) { const int e = encoderOf(m[1]); if (e < 0) { fail("knob: yellow, blue, black or red"); return false; } have = v.knob[e]; }
+        else if (k == "sknob" && m.size() > 1) { const int e = encoderOf(m[1]); if (e < 0) { fail("sknob: yellow, blue, black or red"); return false; } have = v.knobS[e]; }
+        else if (k == "tempo") have = proc_.tempoBpm.load();
+        else if (k == "loop") have = (proc_.uiLoopEnd.load() - proc_.uiLoopStart.load()) / kRate;
+        else if (k == "character") have = rt.character;
+        else if (k == "fader" && m.size() > 1) have = rt.fader[std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3)];
+        else if (k == "pan" && m.size() > 1) { const int t = std::clamp(std::atoi(m[1].c_str()) - 1, 0, 3); have = rt.panR[t] - rt.panL[t]; }
         else if (k == "speed") have = proc_.signedSpeed.load();
         else if (k == "playing") have = proc_.uiPlaying.load();
         else if (k == "recording") have = proc_.uiRecording.load();
@@ -439,8 +445,11 @@ private:
             const int e = encoderOf(arg(1));
             if (e < 0) { fail("turn yellow|blue|black|red DETENTS"); return false; }
             const int d = int(num(w, 2, 1));
-            const bool one = arg(3) == "each";  // "turn red 10 each": ten single detents, 10 ms apart
-            if (one) for (int i = 0; i < std::abs(d); ++i) { send({Event::Turn, e, d > 0 ? 1 : -1}); advance(10); }
+            // "turn red 10 each": ten single detents, 10 ms apart (a quick hand);
+            // "turn red 10 each 200": 200 ms apart (a slow hand)
+            const bool one = arg(3) == "each";
+            const double gap = arg(4).empty() ? 10.0 : num(w, 4, 10);
+            if (one) for (int i = 0; i < std::abs(d); ++i) { send({Event::Turn, e, d > 0 ? 1 : -1}); advance(gap); }
             else send({Event::Turn, e, d});
         } else if (c == "push") {
             const int e = encoderOf(arg(1));

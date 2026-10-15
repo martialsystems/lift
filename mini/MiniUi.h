@@ -9,6 +9,7 @@
 #include "MiniControls.h"
 #include "MiniLayout.h"
 #include "ShiftState.h"
+#include "MiniParams.h"
 
 #include <functional>
 
@@ -36,7 +37,8 @@ public:
         int page, octave, track, source, sourceSel;
         bool sourcesOpen, shift, shiftLatched;
         bool mute[4];
-        float knob[4];            // the four knobs of the screen on show (0..1)
+        float knob[4];            // the four knobs of the page on show, plain side (0..1)
+        float knobS[4];           // the same knobs' SHIFT side
         juce::String toast;       // the message strip text right now ("" = none)
         lift::LiftProcessor::ClipPtr clip;
     };
@@ -50,7 +52,6 @@ private:
     void shiftKey(int k);
     void turn(int enc, int detents);
     void push(int enc, bool down);
-    int screenIndex() const;                  // LiftProcessor knob screen for the mode
     void paintTape(juce::Graphics&, juce::Rectangle<float>);
     void paintSynth(juce::Graphics&, juce::Rectangle<float>);
     void paintDrum(juce::Graphics&, juce::Rectangle<float>);
@@ -74,7 +75,13 @@ private:
     int source_ = 0;
     float radioKnob_[4] = {0.f, 0.f, 0.5f, 0.f};  // TUNE, PRESET, LEVEL, MONO
     bool mute_[4] = {};
-    float knob_[5][4] = {};
+    float val_[4][kMaxPages][2][4] = {};       // [mode][page][0 plain, 1 SHIFT][knob]
+    double lastTurn_[4] = {-1e9, -1e9, -1e9, -1e9};
+    int pg() const { return mode_ == Radio ? 0 : juce::jmin(page_, kPageCount[mode_] - 1); }  // the real page
+    float& val(int side, int k) { return val_[mode_][pg()][side][k]; }
+    void apply(int mode, int page, int side, int k);
+    juce::String valueText(int side, int k) const;
+    void setLoopBars(int bars);
     lift::LiftProcessor::ClipPtr clip_;
     juce::String status_, flash_;
     double flashUntil_ = 0;

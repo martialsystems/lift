@@ -61,6 +61,7 @@ enum class Cmd : uint8_t {
     DropClip,    // a = track: overdub the pending clip (pendingDrop_) at the playhead, wrapped in the loop
     SliceHit,    // a = slice (DRUM screen keys with a slice kit loaded), b = velocity
     Cassette,    // a = 1 the cassette stage on (record + playback electronics), 0 off
+    TrackMix,    // a = track, b = 0 level / 1 pan, v = knob 0..1 (Mini: per-track mixer)
 };
 
 struct Command {
@@ -209,6 +210,7 @@ public:
     // bipolarSpeed on: signedSpeed (-4 .. 0 .. +4) drives the tape instead
     // of SPEED + REV. A direction change glides to a stop first.
     std::atomic<bool> bipolarSpeed{false};
+    std::atomic<bool> perTrackMix{false};  // Mini: TrackMix sets each track; the MIX screen knobs leave them alone
     std::atomic<float> signedSpeed{1.f};
 
     // ---- saved state (message thread) ----

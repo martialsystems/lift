@@ -82,17 +82,84 @@ recipe: SHIFT held long with nothing else does nothing
   expect sources_open == 1
   expect shift_latched == 0
 
-recipe: SHIFT + turn is the fine step, and its release is not a tap
+recipe: SHIFT + turn moves the knob's second parameter, and its release is not a tap
   button SYNTH tap
-  turn yellow 5
+  turn yellow 5          # one fast Pico event: 5 detents x 2 % = +0.1
   expect knob yellow > 0.599
   expect knob yellow < 0.601
+  wait 300
   button SHIFT down
-  turn yellow 5
+  turn yellow 5          # GLIDE, not PITCH (a slow turn: no acceleration)
   button SHIFT up
-  expect knob yellow > 0.624
-  expect knob yellow < 0.626
+  expect sknob yellow > 0.599
+  expect sknob yellow < 0.601
+  expect knob yellow > 0.599
+  expect knob yellow < 0.601
   expect shift == 0
+
+recipe: Slow turns move in small steps, fast turns in big ones
+  button SYNTH tap
+  turn blue 10 each 200   # a slow hand: 1 % a detent
+  expect knob blue > 0.599
+  expect knob blue < 0.601
+  turn black 10 each      # a quick hand: 4 % a detent after the first
+  expect knob black > 0.85
+  turn red 10 each 200
+  turn red -10 each 200   # slow both ways lands back where it started
+  expect knob red > 0.499
+  expect knob red < 0.501
+
+recipe: Releasing SHIFT mid-turn keeps that knob on its second parameter briefly
+  button SYNTH tap
+  button SHIFT down
+  turn yellow 1
+  button SHIFT up
+  wait 50
+  turn yellow 1           # within 150 ms of the last detent: still GLIDE
+  expect sknob yellow > 0.515
+  wait 400
+  turn yellow 1           # after it: PITCH
+  expect knob yellow > 0.509
+
+recipe: SHIFT + blue on TAPE picks the tape CHARACTER
+  button TAPE tap
+  button SHIFT down
+  turn blue 2
+  button SHIFT up
+  wait 20
+  expect character == 2
+  button SHIFT down
+  turn blue 9
+  button SHIFT up
+  wait 20
+  expect character == 3
+
+recipe: SHIFT + red on TAPE sets LOOP LENGTH in bars, and back off
+  button TAPE tap
+  button SHIFT down
+  turn red 2              # off -> 1 -> 2 bars
+  button SHIFT up
+  wait 20
+  expect loop > 3.99      # 2 bars at 120 BPM
+  expect loop < 4.01
+  button SHIFT down
+  turn red -5
+  button SHIFT up
+  wait 20
+  expect loop == 0
+
+recipe: MIX knobs set each track's level; SHIFT + turn pans it
+  button MIX tap
+  turn yellow -20 each 200
+  wait 20
+  expect fader 1 < 0.6
+  expect fader 2 > 0.99
+  button SHIFT down
+  turn blue 20 each 200
+  button SHIFT up
+  wait 20
+  expect pan 2 > 0.3
+  expect pan 1 == 0
 
 # ================================================================ modes and pages
 
@@ -308,14 +375,14 @@ recipe: REC again ends the pass and the tape keeps playing
 recipe: Speed knob turns down through stop into reverse
   button PLAY tap
   run 0.2
-  turn yellow -15 each
+  turn yellow -29 each 200    # slowly, 1 % a detent, into the stop band
   expect speed == 0
   run 1
   mark
   run 1
   expect moved > -0.001
   expect moved < 0.001
-  turn yellow -20 each
+  turn yellow -20 each 200
   expect speed < 0
   run 1
   mark
@@ -324,10 +391,10 @@ recipe: Speed knob turns down through stop into reverse
 
 recipe: Speed knob comes back up through stop into forward
   button PLAY tap
-  turn yellow -40 each
+  turn yellow -40 each 200
   expect speed < 0
   run 1
-  turn yellow 40 each
+  turn yellow 40 each 200
   expect speed > 0
   run 1
   mark
@@ -553,12 +620,12 @@ recipe: Pico buttons on channel 16 press the same buttons
 
 recipe: Pico encoders on channel 16 turn and press
   button SYNTH tap
-  midi 16 cc 20 66
-  expect knob yellow > 0.539
-  expect knob yellow < 0.541
+  midi 16 cc 20 66          # +2 detents, turned slowly: 1 % each
+  expect knob yellow > 0.519
+  expect knob yellow < 0.521
   midi 16 cc 21 62
-  expect knob blue > 0.459
-  expect knob blue < 0.461
+  expect knob blue > 0.479
+  expect knob blue < 0.481
   button TAPE tap
   midi 16 cc 26 127
   midi 16 cc 26 0
