@@ -4,3 +4,4 @@ build/
 !presets/**/*.wav
 __pycache__/
 lift-renders/
+mini-recipes-out/
