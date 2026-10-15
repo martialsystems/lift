@@ -96,7 +96,7 @@ void MiniUi::button(Btn b, bool down) {
         case Btn::OctDown: if (s) proc_.send(lift::Cmd::UndoDrop); else octave_ = jmax(-3, octave_ - 1); break;
         case Btn::OctUp: if (s) say("REDO: NOT IN THIS BUILD"); else octave_ = jmin(3, octave_ + 1); break;
         case Btn::PlayStop:
-            if (s) proc_.send(lift::Cmd::Seek, 0, 0, 0.0);
+            if (s) proc_.send(lift::Cmd::Jump, 0, 0, 0.0);
             else proc_.send(lift::Cmd::Transport, proc_.uiPlaying.load() ? 0 : 1, 0);
             break;
         case Btn::Rec:

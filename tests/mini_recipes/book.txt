@@ -262,7 +262,6 @@ recipe: SHIFT + PLAY goes to the start while stopped
   expect pos < 0.01
 
 recipe: SHIFT + PLAY goes to the start while playing
-  known: SHIFT+PLAY sends Seek, which the processor ignores while the tape moves (Cmd::Jump works)
   button PLAY tap
   run 2
   button SHIFT down
@@ -270,6 +269,7 @@ recipe: SHIFT + PLAY goes to the start while playing
   button SHIFT up
   wait 20
   expect pos < 0.5      # the tape keeps playing for the 0.1 s of the tap
+  expect playing == 1   # it jumps, it does not stop
 
 recipe: Knob presses pick the track in TAPE
   push red
